@@ -291,5 +291,21 @@ def display_text_route():
     
     return redirect(url_for('index'))
 
+@app.route('/delete/<filename>', methods=['POST'])
+def delete_image(filename):
+    """Delete an uploaded image"""
+    try:
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        
+        # Security check - make sure it's actually in the uploads folder
+        if os.path.exists(filepath) and os.path.dirname(os.path.abspath(filepath)) == os.path.abspath(app.config['UPLOAD_FOLDER']):
+            os.remove(filepath)
+            return 'Deleted', 200
+        else:
+            return 'Not found', 404
+    except Exception as e:
+        print(f"Error deleting: {e}")
+        return 'Error', 500
+        
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)
