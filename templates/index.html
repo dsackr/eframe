@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>E-Paper Frame</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .section {
+            margin-bottom: 40px;
+            padding-bottom: 30px;
+            border-bottom: 1px solid #eee;
+        }
+        .section:last-child {
+            border-bottom: none;
+        }
+        h2 {
+            color: #666;
+            font-size: 18px;
+            margin-bottom: 15px;
+        }
+        input[type="file"], textarea {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 10px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            box-sizing: border-box;
+        }
+        textarea {
+            height: 150px;
+            resize: vertical;
+            font-family: Arial, sans-serif;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            padding: 12px 30px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .gallery {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        .gallery-item {
+            position: relative;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            overflow: hidden;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        .gallery-item:hover {
+            transform: scale(1.05);
+            border-color: #007bff;
+        }
+        .gallery-item img {
+            width: 100%;
+            height: 150px;
+            object-fit: cover;
+            display: block;
+        }
+        .gallery-item-name {
+            padding: 5px;
+            font-size: 10px;
+            text-align: center;
+            background: #f8f8f8;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .gallery-buttons {
+            display: flex;
+            gap: 5px;
+            padding: 5px;
+        }
+        .gallery-buttons button {
+            flex: 1;
+            padding: 5px;
+            font-size: 11px;
+        }
+        .color-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+            gap: 10px;
+            margin-top: 15px;
+        }
+        .color-button {
+            padding: 20px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            cursor: pointer;
+            text-align: center;
+            font-weight: bold;
+            transition: transform 0.2s;
+        }
+        .color-button:hover {
+            transform: scale(1.05);
+        }
+        .color-black { background: #000; color: white; }
+        .color-white { background: #fff; color: black; border-color: #999; }
+        .color-green { background: #0f0; color: black; }
+        .color-blue { background: #00f; color: white; }
+        .color-red { background: #f00; color: white; }
+        .color-yellow { background: #ff0; color: black; }
+        .color-orange { background: #ff8000; color: black; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📸 E-Paper Digital Frame</h1>
+        
+        <div class="section">
+            <h2>Upload Image</h2>
+            <form action="/upload" method="post" enctype="multipart/form-data">
+                <input type="file" name="file" accept="image/*" required>
+                <div style="margin: 15px 0;">
+                    <label style="display: flex; align-items: center; cursor: pointer;">
+                        <input type="checkbox" name="dithering" style="width: auto; margin-right: 10px;">
+                        <span>Enable dithering (may improve photos with gradients)</span>
+                    </label>
+                </div>
+                <button type="submit">Display Image</button>
+            </form>
+        </div>
+        
+        <div class="section">
+            <h2>Display Text</h2>
+            <form action="/text" method="post">
+                <textarea name="text" placeholder="Enter text to display..." required></textarea>
+                <button type="submit">Display Text</button>
+            </form>
+        </div>
+        
+        <div class="section">
+            <h2>Test Colors</h2>
+            <p style="color: #666; font-size: 14px; margin-bottom: 10px;">Click to fill the entire display with a solid color</p>
+            <div class="color-grid">
+                <div class="color-button color-black" onclick="displayColor('black')">Black</div>
+                <div class="color-button color-white" onclick="displayColor('white')">White</div>
+                <div class="color-button color-green" onclick="displayColor('green')">Green</div>
+                <div class="color-button color-blue" onclick="displayColor('blue')">Blue</div>
+                <div class="color-button color-red" onclick="displayColor('red')">Red</div>
+                <div class="color-button color-yellow" onclick="displayColor('yellow')">Yellow</div>
+                <div class="color-button color-orange" onclick="displayColor('orange')">Orange</div>
+            </div>
+        </div>
+        
+        {% if uploads %}
+        <div class="section">
+            <h2>Previously Uploaded Images</h2>
+            <div class="gallery">
+                {% for filename in uploads %}
+                <div class="gallery-item">
+                    <img src="/uploads/{{ filename }}" alt="{{ filename }}">
+                    <div class="gallery-item-name" title="{{ filename }}">{{ filename }}</div>
+                    <div class="gallery-buttons">
+                        <button onclick="displayImage('{{ filename }}', false, false)">Display</button>
+                        <button onclick="displayImage('{{ filename }}', true, false)">Dithered</button>
+                        <button onclick="displayImage('{{ filename }}', false, true)" style="background: #28a745;">Raw</button>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    
+    <script>
+        function displayImage(filename, dithering, raw) {
+            let url = '/display/' + filename + '?dithering=' + dithering + '&raw=' + raw;
+            window.location.href = url;
+        }
+        
+        function displayColor(color) {
+            window.location.href = '/color/' + color;
+        }
+    </script>
+</body>
+</html>
