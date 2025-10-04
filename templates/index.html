@@ -91,10 +91,10 @@
             text-overflow: ellipsis;
             white-space: nowrap;
         }
-        .gallery-buttons {
-            display: flex;
-            gap: 5px;
-            padding: 5px;
+        .gallery-buttons button {
+            flex: 1;
+            padding: 4px;
+            font-size: 10px;
         }
         .gallery-buttons button {
             flex: 1;
@@ -180,6 +180,7 @@
                         <button onclick="displayImage('{{ filename }}', false, false)">Display</button>
                         <button onclick="displayImage('{{ filename }}', true, false)">Dithered</button>
                         <button onclick="displayImage('{{ filename }}', false, true)" style="background: #28a745;">Raw</button>
+                        <button onclick="deleteImage('{{ filename }}')" style="background: #dc3545;">Delete</button>
                     </div>
                 </div>
                 {% endfor %}
@@ -194,8 +195,19 @@
             window.location.href = url;
         }
         
-        function displayColor(color) {
-            window.location.href = '/color/' + color;
+        function deleteImage(filename) {
+            if (confirm('Are you sure you want to delete ' + filename + '?')) {
+                fetch('/delete/' + filename, {
+                    method: 'POST'
+                })
+                .then(response => {
+                    if (response.ok) {
+                        location.reload();
+                    } else {
+                        alert('Error deleting image');
+                    }
+                });
+            }
         }
     </script>
 </body>
