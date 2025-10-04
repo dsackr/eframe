@@ -176,11 +176,12 @@
                 <div class="gallery-item">
                     <img src="/uploads/{{ filename }}" alt="{{ filename }}">
                     <div class="gallery-item-name" title="{{ filename }}">{{ filename }}</div>
-                    <div class="gallery-buttons">
-                        <button onclick="displayImage('{{ filename }}', false, false)">Display</button>
-                        <button onclick="displayImage('{{ filename }}', true, false)">Dithered</button>
-                        <button onclick="displayImage('{{ filename }}', false, true)" style="background: #28a745;">Raw</button>
-                        <button onclick="deleteImage('{{ filename }}')" style="background: #dc3545;">Delete</button>
+                <div class="gallery-buttons">
+                        <button onclick="displayImage('{{ filename }}', false, false, false)">Fit</button>
+                        <button onclick="displayImage('{{ filename }}', false, false, true)" style="background: #ff9800;">Crop</button>
+                        <button onclick="displayImage('{{ filename }}', true, false, false)">Dither</button>
+                        <button onclick="displayImage('{{ filename }}', false, true, false)" style="background: #28a745;">Raw</button>
+                        <button onclick="deleteImage('{{ filename }}')" style="background: #dc3545;">Del</button>
                     </div>
                 </div>
                 {% endfor %}
