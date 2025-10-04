@@ -191,8 +191,8 @@
     </div>
     
     <script>
-        function displayImage(filename, dithering, raw) {
-            let url = '/display/' + filename + '?dithering=' + dithering + '&raw=' + raw;
+        function displayImage(filename, dithering, raw, crop) {
+            let url = '/display/' + filename + '?dithering=' + dithering + '&raw=' + raw + '&crop=' + crop;
             window.location.href = url;
         }
         
