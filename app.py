@@ -32,6 +32,10 @@ def display_image_raw(image_path):
         if img.mode != 'RGB':
             img = img.convert('RGB')
         
+        # Auto-rotate portrait images to landscape
+        if img.height > img.width:
+            img = img.rotate(90, expand=True)
+        
         # Simple resize to fit
         img.thumbnail((EPD_WIDTH, EPD_HEIGHT), Image.Resampling.LANCZOS)
         
@@ -63,6 +67,11 @@ def display_image(image_path, use_dithering=False):
         # Convert to RGB if needed
         if img.mode != 'RGB':
             img = img.convert('RGB')
+        
+        # Auto-rotate portrait images to landscape
+        if img.height > img.width:
+            print(f"Portrait image detected ({img.width}x{img.height}), rotating 90 degrees")
+            img = img.rotate(90, expand=True)
         
         # Calculate scaling to fill display while maintaining aspect ratio
         img_ratio = img.width / img.height
@@ -121,7 +130,7 @@ def display_image(image_path, use_dithering=False):
     except Exception as e:
         print(f"Error displaying image: {e}")
         return False
-
+        
 def display_text(text, font_size=40):
     """Display text on the e-paper display"""
     try:
