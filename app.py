@@ -216,7 +216,81 @@ def display_solid_color(color_name):
     except Exception as e:
         print(f"Error displaying color: {e}")
         return False
-
+def display_image_crop(image_path, use_dithering=False):
+    """Display image cropped to fill entire screen"""
+    try:
+        epd = epd7in3e.EPD()
+        epd.init()
+        epd.Clear()
+        
+        # Open image
+        img = Image.open(image_path)
+        
+        # Convert to RGB if needed
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+        
+        # Auto-rotate portrait images to landscape
+        if img.height > img.width:
+            print(f"Portrait image detected ({img.width}x{img.height}), rotating 90 degrees")
+            img = img.rotate(90, expand=True)
+        
+        # Calculate scaling to FILL display (crop excess)
+        img_ratio = img.width / img.height
+        display_ratio = EPD_WIDTH / EPD_HEIGHT
+        
+        if img_ratio > display_ratio:
+            # Image is wider - fit to height, crop width
+            new_height = EPD_HEIGHT
+            new_width = int(EPD_HEIGHT * img_ratio)
+        else:
+            # Image is taller - fit to width, crop height
+            new_width = EPD_WIDTH
+            new_height = int(EPD_WIDTH / img_ratio)
+        
+        # Resize
+        img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        
+        # Apply sharpening filter
+        img = img.filter(ImageFilter.SHARPEN)
+        enhancer = ImageEnhance.Contrast(img)
+        img = enhancer.enhance(1.3)  # Contrast boost
+        
+        # Crop to exact display size (center crop)
+        left = (new_width - EPD_WIDTH) // 2
+        top = (new_height - EPD_HEIGHT) // 2
+        right = left + EPD_WIDTH
+        bottom = top + EPD_HEIGHT
+        
+        display_img = img.crop((left, top, right, bottom))
+        
+        # Apply dithering for better color representation
+        if use_dithering:
+            palette = [
+                0, 0, 0,        # Black
+                255, 255, 255,  # White
+                0, 255, 0,      # Green
+                0, 0, 255,      # Blue
+                255, 0, 0,      # Red
+                255, 255, 0,    # Yellow
+                255, 128, 0     # Orange
+            ]
+            
+            palette_img = Image.new('P', (1, 1))
+            palette_img.putpalette(palette + [0] * (256 * 3 - len(palette)))
+            
+            display_img = display_img.quantize(palette=palette_img, dither=Image.Dither.FLOYDSTEINBERG)
+            display_img = display_img.convert('RGB')
+        
+        # Display on e-paper
+        epd.display(epd.getbuffer(display_img))
+        epd.sleep()
+        
+        return True
+    except Exception as e:
+        print(f"Error displaying image: {e}")
+        return False
+        
 @app.route('/color/<color_name>')
 def display_color(color_name):
     if display_solid_color(color_name):
@@ -271,8 +345,11 @@ def display_from_gallery(filename):
         # Check parameters
         use_dithering = request.args.get('dithering') == 'true'
         use_raw = request.args.get('raw') == 'true'
+        use_crop = request.args.get('crop') == 'true'
         
-        if use_raw:
+        if use_crop:
+            success = display_image_crop(filepath, use_dithering=use_dithering)
+        elif use_raw:
             success = display_image_raw(filepath)
         else:
             success = display_image(filepath, use_dithering=use_dithering)
@@ -283,7 +360,7 @@ def display_from_gallery(filename):
             return 'Error displaying image. <a href="/">Go back</a>'
     else:
         return 'Image not found. <a href="/">Go back</a>'
-
+        
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
