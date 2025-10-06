@@ -38,11 +38,24 @@ def rgb_to_palette_code(r, g, b):
     
     return closest_code
 
-def convert_image_to_binary(img):
-    """Convert PIL Image to binary for ESP32"""
+def convert_image_to_binary(image_path, use_dithering=True):
+    """Convert image to 800x480 binary format with crop-to-fill"""
+    img = Image.open(image_path)
+    
     if img.mode != 'RGB':
         img = img.convert('RGB')
     
+    # Auto-rotate portrait to landscape
+    if img.height > img.width:
+        img = img.rotate(90, expand=True)
+        print(f"Rotated portrait image to landscape")
+    
+    # Downscale very large images first
+    if img.width > 2400 or img.height > 1440:
+        img.thumbnail((2400, 1440), Image.Resampling.LANCZOS)
+        print(f"Pre-scaled large image to {img.width}x{img.height}")
+    
+    # Calculate crop-to-fill dimensions
     img_ratio = img.width / img.height
     display_ratio = 800 / 480
     
@@ -57,6 +70,34 @@ def convert_image_to_binary(img):
     left = (new_width - 800) // 2
     top = (new_height - 480) // 2
     img = img.crop((left, top, left + 800, top + 480))
+    
+    # Check if image is grayscale (all pixels have R=G=B)
+    is_grayscale = all(
+        r == g == b 
+        for r, g, b in list(img.getdata())[:100]  # Sample first 100 pixels
+    )
+    
+    if is_grayscale:
+        print("Grayscale image detected - using black/white only")
+        # For grayscale, convert to pure black and white with dithering
+        img = img.convert('L')  # Convert to grayscale
+        img = img.point(lambda x: 0 if x < 128 else 255, '1')  # Threshold or dither
+        img = img.convert('RGB')
+    elif use_dithering:
+        palette_data = [
+            0, 0, 0,
+            255, 255, 255,
+            255, 240, 0,
+            180, 60, 30,
+            80, 100, 160,
+            120, 180, 60
+        ]
+        
+        palette_img = Image.new('P', (1, 1))
+        palette_img.putpalette(palette_data + [0] * (256 * 3 - len(palette_data)))
+        
+        img = img.quantize(palette=palette_img, dither=Image.Dither.FLOYDSTEINBERG)
+        img = img.convert('RGB')
     
     binary_data = bytearray(192000)
     
