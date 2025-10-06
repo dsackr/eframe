@@ -77,27 +77,23 @@ def convert_image_to_binary(image_path, use_dithering=True):
         for r, g, b in list(img.getdata())[:100]  # Sample first 100 pixels
     )
     
-    if is_grayscale:
-        print("Grayscale image detected - using black/white only")
-        # For grayscale, convert to pure black and white with dithering
-        img = img.convert('L')  # Convert to grayscale
-        img = img.point(lambda x: 0 if x < 128 else 255, '1')  # Threshold or dither
-        img = img.convert('RGB')
-    elif use_dithering:
-        palette_data = [
-            0, 0, 0,
-            255, 255, 255,
-            255, 240, 0,
-            180, 60, 30,
-            80, 100, 160,
-            120, 180, 60
-        ]
-        
-        palette_img = Image.new('P', (1, 1))
-        palette_img.putpalette(palette_data + [0] * (256 * 3 - len(palette_data)))
-        
-        img = img.quantize(palette=palette_img, dither=Image.Dither.FLOYDSTEINBERG)
-        img = img.convert('RGB')
+# Replace the grayscale check section with this simpler version:
+# Don't do special grayscale handling - just rely on the palette
+if use_dithering:
+    palette_data = [
+        0, 0, 0,
+        255, 255, 255,
+        255, 240, 0,
+        180, 60, 30,
+        80, 100, 160,
+        120, 180, 60
+    ]
+    
+    palette_img = Image.new('P', (1, 1))
+    palette_img.putpalette(palette_data + [0] * (256 * 3 - len(palette_data)))
+    
+    img = img.quantize(palette=palette_img, dither=Image.Dither.FLOYDSTEINBERG)
+    img = img.convert('RGB')
     
     binary_data = bytearray(192000)
     
