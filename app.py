@@ -159,8 +159,8 @@ def display_image(image_path, use_dithering=False):
         print(f"Error: {e}")
         return False
 
-def display_text(text, font_size=40):
-    """Display text"""
+def display_text(text, font_size=80):
+    """Display text centered on screen"""
     try:
         img = Image.new('RGB', (EPD_WIDTH, EPD_HEIGHT), 'white')
         draw = ImageDraw.Draw(img)
@@ -170,9 +170,10 @@ def display_text(text, font_size=40):
         except:
             font = ImageFont.load_default()
         
-        margin = 20
+        margin = 40
         max_width = EPD_WIDTH - (margin * 2)
         
+        # Word wrap
         lines = []
         words = text.split()
         current_line = []
@@ -190,17 +191,31 @@ def display_text(text, font_size=40):
         if current_line:
             lines.append(' '.join(current_line))
         
-        y = margin
+        # Calculate total height of all lines
+        total_height = 0
+        line_heights = []
         for line in lines:
-            draw.text((margin, y), line, font=font, fill='black')
             bbox = draw.textbbox((0, 0), line, font=font)
-            y += (bbox[3] - bbox[1]) + 10
+            height = bbox[3] - bbox[1]
+            line_heights.append(height)
+            total_height += height + 10  # 10px spacing
+        
+        # Start position to center vertically
+        y = (EPD_HEIGHT - total_height) // 2
+        
+        # Draw each line centered
+        for i, line in enumerate(lines):
+            bbox = draw.textbbox((0, 0), line, font=font)
+            width = bbox[2] - bbox[0]
+            x = (EPD_WIDTH - width) // 2
+            draw.text((x, y), line, font=font, fill='black')
+            y += line_heights[i] + 10
         
         return send_to_esp32(img)
     except Exception as e:
         print(f"Error: {e}")
         return False
-
+        
 def display_solid_color(color_name):
     """Display a solid color"""
     try:
