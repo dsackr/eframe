@@ -8,21 +8,25 @@ app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
+# Display dimensions
 EPD_WIDTH = 800
 EPD_HEIGHT = 480
+
+# ESP32 Configuration
 ESP32_IP = "192.168.86.127"
 
-# Use the same palette that works well for grayscale
+# 6-color palette
 PALETTE = {
     'black': (0, 0, 0, 0x0),
     'white': (255, 255, 255, 0x1),
-    'yellow': (255, 255, 0, 0x2),
-    'red': (200, 80, 50, 0x3),
-    'blue': (100, 120, 180, 0x5),
-    'green': (200, 200, 80, 0x6)
+    'yellow': (255, 240, 0, 0x2),
+    'red': (180, 60, 30, 0x3),
+    'blue': (80, 100, 160, 0x5),
+    'green': (120, 180, 60, 0x6)
 }
 
 def rgb_to_palette_code(r, g, b):
+    """Find closest color in palette"""
     min_distance = float('inf')
     closest_code = 0x1
     
@@ -34,7 +38,8 @@ def rgb_to_palette_code(r, g, b):
     
     return closest_code
 
-def convert_image_to_binary(img, use_dithering=True):
+def convert_image_to_binary(img):
+    """Convert PIL Image to binary for ESP32"""
     if img.mode != 'RGB':
         img = img.convert('RGB')
     
@@ -53,16 +58,6 @@ def convert_image_to_binary(img, use_dithering=True):
     top = (new_height - 480) // 2
     img = img.crop((left, top, left + 800, top + 480))
     
-    if use_dithering:
-        palette_data = [
-            0, 0, 0, 255, 255, 255, 255, 255, 0,
-            200, 80, 50, 100, 120, 180, 200, 200, 80
-        ]
-        palette_img = Image.new('P', (1, 1))
-        palette_img.putpalette(palette_data + [0] * (256 * 3 - len(palette_data)))
-        img = img.quantize(palette=palette_img, dither=Image.Dither.FLOYDSTEINBERG)
-        img = img.convert('RGB')
-    
     binary_data = bytearray(192000)
     
     for row in range(480):
@@ -79,20 +74,24 @@ def convert_image_to_binary(img, use_dithering=True):
     return bytes(binary_data)
 
 def send_to_esp32(img):
+    """Send PIL Image to ESP32"""
     try:
         binary_data = convert_image_to_binary(img)
+        
         response = requests.post(
             f'http://{ESP32_IP}/display',
             files={'file': ('image.bin', binary_data)},
             headers={'Connection': 'keep-alive'},
             timeout=120
         )
+        
         return response.status_code == 200
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Error sending to ESP32: {e}")
         return False
 
 def display_image_raw(image_path):
+    """Display image with minimal processing"""
     try:
         img = Image.open(image_path)
         if img.mode != 'RGB':
@@ -102,6 +101,7 @@ def display_image_raw(image_path):
             img = img.rotate(90, expand=True)
         
         img.thumbnail((EPD_WIDTH, EPD_HEIGHT), Image.Resampling.LANCZOS)
+        
         display_img = Image.new('RGB', (EPD_WIDTH, EPD_HEIGHT), 'white')
         x = (EPD_WIDTH - img.width) // 2
         y = (EPD_HEIGHT - img.height) // 2
@@ -113,6 +113,7 @@ def display_image_raw(image_path):
         return False
 
 def display_image(image_path, use_dithering=False):
+    """Display an image with optional dithering"""
     try:
         img = Image.open(image_path)
         
@@ -120,6 +121,7 @@ def display_image(image_path, use_dithering=False):
             img = img.convert('RGB')
         
         if img.height > img.width:
+            print(f"Portrait image detected, rotating 90 degrees")
             img = img.rotate(90, expand=True)
         
         img_ratio = img.width / img.height
@@ -142,12 +144,23 @@ def display_image(image_path, use_dithering=False):
         y = (EPD_HEIGHT - img.height) // 2
         display_img.paste(img, (x, y))
         
-        return send_to_esp32(convert_image_to_binary(display_img, use_dithering))
+        if use_dithering:
+            palette_data = [
+                0, 0, 0, 255, 255, 255, 255, 240, 0,
+                180, 60, 30, 80, 100, 160, 120, 180, 60
+            ]
+            palette_img = Image.new('P', (1, 1))
+            palette_img.putpalette(palette_data + [0] * (256 * 3 - len(palette_data)))
+            display_img = display_img.quantize(palette=palette_img, dither=Image.Dither.FLOYDSTEINBERG)
+            display_img = display_img.convert('RGB')
+        
+        return send_to_esp32(display_img)
     except Exception as e:
         print(f"Error: {e}")
         return False
 
 def display_text(text, font_size=80):
+    """Display text centered on screen"""
     try:
         img = Image.new('RGB', (EPD_WIDTH, EPD_HEIGHT), 'white')
         draw = ImageDraw.Draw(img)
@@ -160,6 +173,7 @@ def display_text(text, font_size=80):
         margin = 40
         max_width = EPD_WIDTH - (margin * 2)
         
+        # Word wrap
         lines = []
         words = text.split()
         current_line = []
@@ -177,16 +191,19 @@ def display_text(text, font_size=80):
         if current_line:
             lines.append(' '.join(current_line))
         
+        # Calculate total height of all lines
         total_height = 0
         line_heights = []
         for line in lines:
             bbox = draw.textbbox((0, 0), line, font=font)
             height = bbox[3] - bbox[1]
             line_heights.append(height)
-            total_height += height + 10
+            total_height += height + 10  # 10px spacing
         
+        # Start position to center vertically
         y = (EPD_HEIGHT - total_height) // 2
         
+        # Draw each line centered
         for i, line in enumerate(lines):
             bbox = draw.textbbox((0, 0), line, font=font)
             width = bbox[2] - bbox[0]
@@ -198,16 +215,17 @@ def display_text(text, font_size=80):
     except Exception as e:
         print(f"Error: {e}")
         return False
-
+        
 def display_solid_color(color_name):
+    """Display a solid color"""
     try:
         colors = {
             'black': (0, 0, 0),
             'white': (255, 255, 255),
-            'green': (200, 200, 80),
-            'blue': (100, 120, 180),
-            'red': (200, 80, 50),
-            'yellow': (255, 255, 0)
+            'green': (120, 180, 60),
+            'blue': (80, 100, 160),
+            'red': (180, 60, 30),
+            'yellow': (255, 240, 0)
         }
         
         if color_name not in colors:
@@ -220,6 +238,7 @@ def display_solid_color(color_name):
         return False
 
 def display_image_crop(image_path, use_dithering=False):
+    """Display image cropped to fill screen"""
     try:
         img = Image.open(image_path)
         
@@ -248,7 +267,17 @@ def display_image_crop(image_path, use_dithering=False):
         top = (new_height - EPD_HEIGHT) // 2
         display_img = img.crop((left, top, left + EPD_WIDTH, top + EPD_HEIGHT))
         
-        return send_to_esp32(convert_image_to_binary(display_img, use_dithering))
+        if use_dithering:
+            palette_data = [
+                0, 0, 0, 255, 255, 255, 255, 240, 0,
+                180, 60, 30, 80, 100, 160, 120, 180, 60
+            ]
+            palette_img = Image.new('P', (1, 1))
+            palette_img.putpalette(palette_data + [0] * (256 * 3 - len(palette_data)))
+            display_img = display_img.quantize(palette=palette_img, dither=Image.Dither.FLOYDSTEINBERG)
+            display_img = display_img.convert('RGB')
+        
+        return send_to_esp32(display_img)
     except Exception as e:
         print(f"Error: {e}")
         return False
@@ -258,7 +287,7 @@ def display_color(color_name):
     if display_solid_color(color_name):
         return f'{color_name.capitalize()} displayed! <a href="/">Go back</a>'
     else:
-        return 'Error. <a href="/">Go back</a>'
+        return 'Error displaying color. <a href="/">Go back</a>'
 
 @app.route('/')
 def index():
@@ -293,7 +322,7 @@ def upload_file():
         if display_image(filepath, use_dithering=use_dithering):
             return 'Image displayed! <a href="/">Go back</a>'
         else:
-            return 'Error. <a href="/">Go back</a>'
+            return 'Error displaying. <a href="/">Go back</a>'
 
 @app.route('/display/<filename>')
 def display_from_gallery(filename):
@@ -316,7 +345,7 @@ def display_from_gallery(filename):
         else:
             return 'Error. <a href="/">Go back</a>'
     else:
-        return 'Not found. <a href="/">Go back</a>'
+        return 'Image not found. <a href="/">Go back</a>'
 
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
