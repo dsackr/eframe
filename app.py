@@ -270,9 +270,14 @@ def display_image_crop(image_path, use_dithering=False):
         
         if use_dithering:
             palette_data = [
-                0, 0, 0, 255, 255, 255, 255, 240, 0,
-                180, 60, 30, 80, 100, 160, 120, 180, 60
+                0, 0, 0,         # black
+                255, 255, 255,   # white
+                255, 255, 0,     # yellow (corrected)
+                200, 80, 50,     # red (corrected)
+                100, 120, 180,   # blue (corrected)
+                200, 200, 80     # green (corrected)
             ]
+
             palette_img = Image.new('P', (1, 1))
             palette_img.putpalette(palette_data + [0] * (256 * 3 - len(palette_data)))
             display_img = display_img.quantize(palette=palette_img, dither=Image.Dither.FLOYDSTEINBERG)
