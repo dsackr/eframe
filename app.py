@@ -15,15 +15,16 @@ EPD_HEIGHT = 480
 # ESP32 Configuration
 ESP32_IP = "192.168.86.127"
 
-# 6-color palette
+# 6-color palette (corrected to match epaper-converter)
 PALETTE = {
     'black': (0, 0, 0, 0x0),
     'white': (255, 255, 255, 0x1),
-    'yellow': (255, 240, 0, 0x2),
-    'red': (180, 60, 30, 0x3),
-    'blue': (80, 100, 160, 0x5),
-    'green': (120, 180, 60, 0x6)
+    'yellow': (255, 255, 0, 0x2),   # was 255,240,0
+    'red':    (200, 80, 50, 0x3),   # was 180,60,30
+    'blue':   (100,120,180, 0x5),   # was 80,100,160
+    'green':  (200,200, 80, 0x6)    # was 120,180,60
 }
+
 
 def rgb_to_palette_code(r, g, b):
     """Find closest color in palette"""
