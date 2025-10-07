@@ -91,10 +91,10 @@ def convert_image_to_binary(img, use_dithering=True):
     
     return bytes(binary_data)
 
-def send_to_esp32(img):
+def send_to_esp32(img, use_dithering=True):
     """Send PIL Image to ESP32"""
     try:
-        binary_data = convert_image_to_binary(img)
+        binary_data = convert_image_to_binary(img, use_dithering)  # Pass it through!
         
         response = requests.post(
             f'http://{ESP32_IP}/display',
