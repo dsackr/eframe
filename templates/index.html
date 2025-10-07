@@ -91,10 +91,9 @@
             text-overflow: ellipsis;
             white-space: nowrap;
         }
-        .gallery-buttons button {
-            flex: 1;
-            padding: 4px;
-            font-size: 10px;
+        .gallery-buttons {
+            display: flex;
+            gap: 2px;
         }
         .gallery-buttons button {
             flex: 1;
@@ -121,11 +120,10 @@
         }
         .color-black { background: #000; color: white; }
         .color-white { background: #fff; color: black; border-color: #999; }
-        .color-green { background: #0f0; color: black; }
-        .color-blue { background: #00f; color: white; }
-        .color-red { background: #f00; color: white; }
+        .color-green { background: #c8c850; color: black; }
+        .color-blue { background: #647cb4; color: white; }
+        .color-red { background: #c85032; color: white; }
         .color-yellow { background: #ff0; color: black; }
-        .color-orange { background: #ff8000; color: black; }
     </style>
 </head>
 <body>
@@ -136,14 +134,9 @@
             <h2>Upload Image</h2>
             <form action="/upload" method="post" enctype="multipart/form-data">
                 <input type="file" name="file" accept="image/*" required>
-                <div style="margin: 15px 0;">
-                    <label style="display: flex; align-items: center; cursor: pointer;">
-                        <input type="checkbox" name="dithering" style="width: auto; margin-right: 10px;">
-                        <span>Enable dithering (may improve photos with gradients)</span>
-                    </label>
-                </div>
                 <button type="submit">Display Image</button>
             </form>
+            <p style="color: #666; font-size: 12px; margin-top: 10px;">Images are automatically dithered for best quality</p>
         </div>
         
         <div class="section">
@@ -164,7 +157,6 @@
                 <div class="color-button color-blue" onclick="displayColor('blue')">Blue</div>
                 <div class="color-button color-red" onclick="displayColor('red')">Red</div>
                 <div class="color-button color-yellow" onclick="displayColor('yellow')">Yellow</div>
-                <div class="color-button color-orange" onclick="displayColor('orange')">Orange</div>
             </div>
         </div>
         
@@ -176,11 +168,10 @@
                 <div class="gallery-item">
                     <img src="/uploads/{{ filename }}" alt="{{ filename }}">
                     <div class="gallery-item-name" title="{{ filename }}">{{ filename }}</div>
-                <div class="gallery-buttons">
-                        <button onclick="displayImage('{{ filename }}', false, false, false)">Fit</button>
-                        <button onclick="displayImage('{{ filename }}', false, false, true)" style="background: #ff9800;">Crop</button>
-                        <button onclick="displayImage('{{ filename }}', true, false, false)">Dither</button>
-                        <button onclick="displayImage('{{ filename }}', false, true, false)" style="background: #28a745;">Raw</button>
+                    <div class="gallery-buttons">
+                        <button onclick="displayImage('{{ filename }}', false, false)">Fit</button>
+                        <button onclick="displayImage('{{ filename }}', false, true)" style="background: #ff9800;">Crop</button>
+                        <button onclick="displayImage('{{ filename }}', true, false)" style="background: #28a745;">Raw</button>
                         <button onclick="deleteImage('{{ filename }}')" style="background: #dc3545;">Del</button>
                     </div>
                 </div>
@@ -191,9 +182,13 @@
     </div>
     
     <script>
-        function displayImage(filename, dithering, raw, crop) {
-            let url = '/display/' + filename + '?dithering=' + dithering + '&raw=' + raw + '&crop=' + crop;
+        function displayImage(filename, raw, crop) {
+            let url = '/display/' + filename + '?raw=' + raw + '&crop=' + crop;
             window.location.href = url;
+        }
+        
+        function displayColor(color) {
+            window.location.href = '/color/' + color;
         }
         
         function deleteImage(filename) {
