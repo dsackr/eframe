@@ -15,16 +15,15 @@ EPD_HEIGHT = 480
 # ESP32 Configuration
 ESP32_IP = "192.168.86.127"
 
-# 6-color palette (corrected to match epaper-converter)
+# 6-color palette
 PALETTE = {
     'black': (0, 0, 0, 0x0),
     'white': (255, 255, 255, 0x1),
-    'yellow': (255, 255, 0, 0x2),   # was 255,240,0
-    'red':    (200, 80, 50, 0x3),   # was 180,60,30
-    'blue':   (100,120,180, 0x5),   # was 80,100,160
-    'green':  (200,200, 80, 0x6)    # was 120,180,60
+    'yellow': (255, 255, 0, 0x2),
+    'red': (200, 80, 50, 0x3),
+    'blue': (100, 120, 180, 0x5),
+    'green': (200, 200, 80, 0x6)
 }
-
 
 def rgb_to_palette_code(r, g, b):
     """Find closest color in palette"""
@@ -59,7 +58,6 @@ def convert_image_to_binary(img, use_dithering=True):
     top = (new_height - 480) // 2
     img = img.crop((left, top, left + 800, top + 480))
     
-    # Add dithering like epaper-converter
     if use_dithering:
         palette_data = [
             0, 0, 0,
@@ -94,7 +92,7 @@ def convert_image_to_binary(img, use_dithering=True):
 def send_to_esp32(img, use_dithering=True):
     """Send PIL Image to ESP32"""
     try:
-        binary_data = convert_image_to_binary(img, use_dithering)  # Pass it through!
+        binary_data = convert_image_to_binary(img, use_dithering)
         
         response = requests.post(
             f'http://{ESP32_IP}/display',
@@ -125,7 +123,7 @@ def display_image_raw(image_path):
         y = (EPD_HEIGHT - img.height) // 2
         display_img.paste(img, (x, y))
         
-        return send_to_esp32(display_img)
+        return send_to_esp32(display_img, use_dithering=False)
     except Exception as e:
         print(f"Error: {e}")
         return False
@@ -162,17 +160,7 @@ def display_image(image_path, use_dithering=False):
         y = (EPD_HEIGHT - img.height) // 2
         display_img.paste(img, (x, y))
         
-        if use_dithering:
-            palette_data = [
-                0, 0, 0, 255, 255, 255, 255, 255, 0,
-                200, 80, 50, 100, 120, 180, 200, 200, 80
-            ]
-            palette_img = Image.new('P', (1, 1))
-            palette_img.putpalette(palette_data + [0] * (256 * 3 - len(palette_data)))
-            display_img = display_img.quantize(palette=palette_img, dither=Image.Dither.FLOYDSTEINBERG)
-            display_img = display_img.convert('RGB')
-        
-        return send_to_esp32(display_img)
+        return send_to_esp32(display_img, use_dithering=use_dithering)
     except Exception as e:
         print(f"Error: {e}")
         return False
@@ -191,7 +179,6 @@ def display_text(text, font_size=80):
         margin = 40
         max_width = EPD_WIDTH - (margin * 2)
         
-        # Word wrap
         lines = []
         words = text.split()
         current_line = []
@@ -209,19 +196,16 @@ def display_text(text, font_size=80):
         if current_line:
             lines.append(' '.join(current_line))
         
-        # Calculate total height of all lines
         total_height = 0
         line_heights = []
         for line in lines:
             bbox = draw.textbbox((0, 0), line, font=font)
             height = bbox[3] - bbox[1]
             line_heights.append(height)
-            total_height += height + 10  # 10px spacing
+            total_height += height + 10
         
-        # Start position to center vertically
         y = (EPD_HEIGHT - total_height) // 2
         
-        # Draw each line centered
         for i, line in enumerate(lines):
             bbox = draw.textbbox((0, 0), line, font=font)
             width = bbox[2] - bbox[0]
@@ -229,28 +213,28 @@ def display_text(text, font_size=80):
             draw.text((x, y), line, font=font, fill='black')
             y += line_heights[i] + 10
         
-        return send_to_esp32(img)
+        return send_to_esp32(img, use_dithering=False)
     except Exception as e:
         print(f"Error: {e}")
         return False
-        
+
 def display_solid_color(color_name):
     """Display a solid color"""
     try:
         colors = {
             'black': (0, 0, 0),
             'white': (255, 255, 255),
-            'green': (120, 180, 60),
-            'blue': (80, 100, 160),
-            'red': (180, 60, 30),
-            'yellow': (255, 240, 0)
+            'green': (200, 200, 80),
+            'blue': (100, 120, 180),
+            'red': (200, 80, 50),
+            'yellow': (255, 255, 0)
         }
         
         if color_name not in colors:
             return False
         
         img = Image.new('RGB', (EPD_WIDTH, EPD_HEIGHT), colors[color_name])
-        return send_to_esp32(img)
+        return send_to_esp32(img, use_dithering=False)
     except Exception as e:
         print(f"Error: {e}")
         return False
@@ -285,22 +269,7 @@ def display_image_crop(image_path, use_dithering=False):
         top = (new_height - EPD_HEIGHT) // 2
         display_img = img.crop((left, top, left + EPD_WIDTH, top + EPD_HEIGHT))
         
-        if use_dithering:
-            palette_data = [
-                0, 0, 0,         # black
-                255, 255, 255,   # white
-                255, 255, 0,     # yellow (corrected)
-                200, 80, 50,     # red (corrected)
-                100, 120, 180,   # blue (corrected)
-                200, 200, 80     # green (corrected)
-            ]
-
-            palette_img = Image.new('P', (1, 1))
-            palette_img.putpalette(palette_data + [0] * (256 * 3 - len(palette_data)))
-            display_img = display_img.quantize(palette=palette_img, dither=Image.Dither.FLOYDSTEINBERG)
-            display_img = display_img.convert('RGB')
-        
-        return send_to_esp32(display_img)
+        return send_to_esp32(display_img, use_dithering=use_dithering)
     except Exception as e:
         print(f"Error: {e}")
         return False
