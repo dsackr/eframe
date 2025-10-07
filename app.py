@@ -147,8 +147,8 @@ def display_image(image_path, use_dithering=False):
         
         if use_dithering:
             palette_data = [
-                0, 0, 0, 255, 255, 255, 255, 240, 0,
-                180, 60, 30, 80, 100, 160, 120, 180, 60
+                0, 0, 0, 255, 255, 255, 255, 255, 0,
+                200, 80, 50, 100, 120, 180, 200, 200, 80
             ]
             palette_img = Image.new('P', (1, 1))
             palette_img.putpalette(palette_data + [0] * (256 * 3 - len(palette_data)))
