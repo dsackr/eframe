@@ -39,7 +39,7 @@ def rgb_to_palette_code(r, g, b):
     
     return closest_code
 
-def convert_image_to_binary(img):
+def convert_image_to_binary(img, use_dithering=True):
     """Convert PIL Image to binary for ESP32"""
     if img.mode != 'RGB':
         img = img.convert('RGB')
@@ -58,6 +58,23 @@ def convert_image_to_binary(img):
     left = (new_width - 800) // 2
     top = (new_height - 480) // 2
     img = img.crop((left, top, left + 800, top + 480))
+    
+    # Add dithering like epaper-converter
+    if use_dithering:
+        palette_data = [
+            0, 0, 0,
+            255, 255, 255,
+            255, 255, 0,
+            200, 80, 50,
+            100, 120, 180,
+            200, 200, 80
+        ]
+        
+        palette_img = Image.new('P', (1, 1))
+        palette_img.putpalette(palette_data + [0] * (256 * 3 - len(palette_data)))
+        
+        img = img.quantize(palette=palette_img, dither=Image.Dither.FLOYDSTEINBERG)
+        img = img.convert('RGB')
     
     binary_data = bytearray(192000)
     
