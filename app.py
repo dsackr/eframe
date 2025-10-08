@@ -1,17 +1,24 @@
-from flask import Flask, render_template, request, redirect, url_for, send_from_directory
-from PIL import Image, ImageEnhance, ImageFilter, ImageDraw, ImageFont
-import os
+from flask import Flask, request, render_template, jsonify, send_from_directory
+from PIL import Image
 import requests
+import io
+import os
+import json
 from datetime import datetime
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = 'uploads'
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
-EPD_WIDTH = 800
-EPD_HEIGHT = 480
+# Configuration
 ESP32_IP = "192.168.86.127"
+UPLOAD_FOLDER = 'stored_images'
+METADATA_FILE = 'image_metadata.json'
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'}
 
+# Create upload folder if it doesn't exist
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+# Corrected 6-color palette
 PALETTE = {
     'black': (0, 0, 0, 0x0),
     'white': (255, 255, 255, 0x1),
@@ -21,7 +28,23 @@ PALETTE = {
     'green': (200, 200, 80, 0x6)
 }
 
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def load_metadata():
+    """Load image metadata from JSON file"""
+    if os.path.exists(METADATA_FILE):
+        with open(METADATA_FILE, 'r') as f:
+            return json.load(f)
+    return []
+
+def save_metadata(metadata):
+    """Save image metadata to JSON file"""
+    with open(METADATA_FILE, 'w') as f:
+        json.dump(metadata, f, indent=2)
+
 def rgb_to_palette_code(r, g, b):
+    """Find closest color in palette"""
     min_distance = float('inf')
     closest_code = 0x1
     
@@ -33,36 +56,87 @@ def rgb_to_palette_code(r, g, b):
     
     return closest_code
 
-def convert_image_to_binary(img):
-    """Convert PIL Image to binary for ESP32 - always with dithering"""
+def convert_image_to_binary(image_path, mode='crop', use_dithering=True):
+    """
+    Convert image to 800x480 binary format
+    
+    mode:
+        'fit' - longest axis fits 800px, leaves borders if needed
+        'crop' - shortest axis fits 480px, crops excess
+    """
+    img = Image.open(image_path)
+    
     if img.mode != 'RGB':
         img = img.convert('RGB')
     
+    # Auto-rotate portrait to landscape
+    if img.height > img.width:
+        img = img.rotate(90, expand=True)
+        print(f"Rotated portrait image to landscape")
+    
+    # Downscale very large images first
+    if img.width > 2400 or img.height > 1440:
+        img.thumbnail((2400, 1440), Image.Resampling.LANCZOS)
+        print(f"Pre-scaled large image to {img.width}x{img.height}")
+    
+    # Calculate dimensions based on mode
     img_ratio = img.width / img.height
     display_ratio = 800 / 480
     
-    if img_ratio > display_ratio:
-        new_height = 480
-        new_width = int(480 * img_ratio)
-    else:
-        new_width = 800
-        new_height = int(800 / img_ratio)
+    if mode == 'fit':
+        # Fit mode: longest axis = 800px, add borders if needed
+        if img_ratio > display_ratio:
+            # Image is wider than display
+            new_width = 800
+            new_height = int(800 / img_ratio)
+        else:
+            # Image is taller than display
+            new_height = 480
+            new_width = int(480 * img_ratio)
+        
+        # Resize image
+        img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        
+        # Create white background and paste image centered
+        final_img = Image.new('RGB', (800, 480), (255, 255, 255))
+        x_offset = (800 - new_width) // 2
+        y_offset = (480 - new_height) // 2
+        final_img.paste(img, (x_offset, y_offset))
+        img = final_img
+        
+    else:  # crop mode
+        # Crop mode: shortest axis = 480px, crop excess
+        if img_ratio > display_ratio:
+            # Image is wider than display - fit height, crop width
+            new_height = 480
+            new_width = int(480 * img_ratio)
+        else:
+            # Image is taller than display - fit width, crop height
+            new_width = 800
+            new_height = int(800 / img_ratio)
+        
+        img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        
+        # Crop to center
+        left = (new_width - 800) // 2
+        top = (new_height - 480) // 2
+        img = img.crop((left, top, left + 800, top + 480))
     
-    img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-    left = (new_width - 800) // 2
-    top = (new_height - 480) // 2
-    img = img.crop((left, top, left + 800, top + 480))
-    
-    # Always dither
-    palette_data = [
-        0, 0, 0, 255, 255, 255, 255, 255, 0,
-        200, 80, 50, 100, 120, 180, 200, 200, 80
-    ]
-    
-    palette_img = Image.new('P', (1, 1))
-    palette_img.putpalette(palette_data + [0] * (256 * 3 - len(palette_data)))
-    img = img.quantize(palette=palette_img, dither=Image.Dither.FLOYDSTEINBERG)
-    img = img.convert('RGB')
+    if use_dithering:
+        palette_data = [
+            0, 0, 0,
+            255, 255, 255,
+            255, 255, 0,
+            200, 80, 50,
+            100, 120, 180,
+            200, 200, 80
+        ]
+        
+        palette_img = Image.new('P', (1, 1))
+        palette_img.putpalette(palette_data + [0] * (256 * 3 - len(palette_data)))
+        
+        img = img.quantize(palette=palette_img, dither=Image.Dither.FLOYDSTEINBERG)
+        img = img.convert('RGB')
     
     binary_data = bytearray(192000)
     
@@ -79,272 +153,137 @@ def convert_image_to_binary(img):
     
     return bytes(binary_data)
 
-def send_to_esp32(img):
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/upload', methods=['POST'])
+def upload():
+    if 'image' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+    
+    file = request.files['image']
+    
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+    
+    if not allowed_file(file.filename):
+        return jsonify({'error': 'Invalid file type'}), 400
+    
     try:
-        binary_data = convert_image_to_binary(img)
+        mode = request.form.get('mode', 'crop')
+        save_image = request.form.get('save', 'false').lower() == 'true'
+        
+        # Save file if requested
+        stored_filename = None
+        if save_image:
+            filename = secure_filename(file.filename)
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            stored_filename = f"{timestamp}_{filename}"
+            filepath = os.path.join(UPLOAD_FOLDER, stored_filename)
+            file.save(filepath)
+            
+            # Update metadata
+            metadata = load_metadata()
+            metadata.append({
+                'filename': stored_filename,
+                'original_name': file.filename,
+                'upload_date': datetime.now().isoformat(),
+                'mode': mode
+            })
+            save_metadata(metadata)
+            
+            # Use saved file for conversion
+            file_to_convert = filepath
+        else:
+            # Use uploaded file directly
+            file_to_convert = file
+        
+        binary_data = convert_image_to_binary(file_to_convert, mode=mode)
+        
         response = requests.post(
             f'http://{ESP32_IP}/display',
             files={'file': ('image.bin', binary_data)},
             headers={'Connection': 'keep-alive'},
             timeout=120
         )
-        return response.status_code == 200
+        
+        if response.status_code == 200:
+            return jsonify({
+                'success': True, 
+                'message': 'Image displayed!',
+                'saved': save_image,
+                'filename': stored_filename if save_image else None
+            })
+        else:
+            return jsonify({'error': f'ESP32 error: {response.status_code}'}), 500
+            
     except Exception as e:
-        print(f"Error: {e}")
-        return False
+        return jsonify({'error': str(e)}), 500
 
-def display_image_raw(image_path):
+@app.route('/stored-images', methods=['GET'])
+def get_stored_images():
+    """Get list of stored images"""
+    metadata = load_metadata()
+    return jsonify(metadata)
+
+@app.route('/display-stored', methods=['POST'])
+def display_stored():
+    """Display a previously stored image"""
+    data = request.get_json()
+    filename = data.get('filename')
+    mode = data.get('mode', 'crop')
+    
+    if not filename:
+        return jsonify({'error': 'No filename provided'}), 400
+    
+    filepath = os.path.join(UPLOAD_FOLDER, filename)
+    
+    if not os.path.exists(filepath):
+        return jsonify({'error': 'File not found'}), 404
+    
     try:
-        img = Image.open(image_path)
-        if img.mode != 'RGB':
-            img = img.convert('RGB')
+        binary_data = convert_image_to_binary(filepath, mode=mode)
         
-        if img.height > img.width:
-            img = img.rotate(90, expand=True)
+        response = requests.post(
+            f'http://{ESP32_IP}/display',
+            files={'file': ('image.bin', binary_data)},
+            headers={'Connection': 'keep-alive'},
+            timeout=120
+        )
         
-        img.thumbnail((EPD_WIDTH, EPD_HEIGHT), Image.Resampling.LANCZOS)
-        display_img = Image.new('RGB', (EPD_WIDTH, EPD_HEIGHT), 'white')
-        x = (EPD_WIDTH - img.width) // 2
-        y = (EPD_HEIGHT - img.height) // 2
-        display_img.paste(img, (x, y))
-        
-        return send_to_esp32(display_img)
+        if response.status_code == 200:
+            return jsonify({'success': True, 'message': 'Image displayed!'})
+        else:
+            return jsonify({'error': f'ESP32 error: {response.status_code}'}), 500
+            
     except Exception as e:
-        print(f"Error: {e}")
-        return False
+        return jsonify({'error': str(e)}), 500
 
-def display_image(image_path):
+@app.route('/delete-stored/<filename>', methods=['DELETE'])
+def delete_stored(filename):
+    """Delete a stored image"""
+    filepath = os.path.join(UPLOAD_FOLDER, filename)
+    
+    if not os.path.exists(filepath):
+        return jsonify({'error': 'File not found'}), 404
+    
     try:
-        img = Image.open(image_path)
+        os.remove(filepath)
         
-        if img.mode != 'RGB':
-            img = img.convert('RGB')
+        # Update metadata
+        metadata = load_metadata()
+        metadata = [m for m in metadata if m['filename'] != filename]
+        save_metadata(metadata)
         
-        if img.height > img.width:
-            img = img.rotate(90, expand=True)
-        
-        img_ratio = img.width / img.height
-        display_ratio = EPD_WIDTH / EPD_HEIGHT
-        
-        if img_ratio > display_ratio:
-            new_width = EPD_WIDTH
-            new_height = int(EPD_WIDTH / img_ratio)
-        else:
-            new_height = EPD_HEIGHT
-            new_width = int(EPD_HEIGHT * img_ratio)
-        
-        img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-        img = img.filter(ImageFilter.SHARPEN)
-        enhancer = ImageEnhance.Contrast(img)
-        img = enhancer.enhance(1.3)
-        
-        display_img = Image.new('RGB', (EPD_WIDTH, EPD_HEIGHT), 'white')
-        x = (EPD_WIDTH - img.width) // 2
-        y = (EPD_HEIGHT - img.height) // 2
-        display_img.paste(img, (x, y))
-        
-        return send_to_esp32(display_img)
+        return jsonify({'success': True, 'message': 'Image deleted'})
     except Exception as e:
-        print(f"Error: {e}")
-        return False
+        return jsonify({'error': str(e)}), 500
 
-def display_text(text, font_size=80):
-    try:
-        img = Image.new('RGB', (EPD_WIDTH, EPD_HEIGHT), 'white')
-        draw = ImageDraw.Draw(img)
-        
-        try:
-            font = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', font_size)
-        except:
-            font = ImageFont.load_default()
-        
-        margin = 40
-        max_width = EPD_WIDTH - (margin * 2)
-        
-        lines = []
-        words = text.split()
-        current_line = []
-        
-        for word in words:
-            test_line = ' '.join(current_line + [word])
-            bbox = draw.textbbox((0, 0), test_line, font=font)
-            if bbox[2] - bbox[0] <= max_width:
-                current_line.append(word)
-            else:
-                if current_line:
-                    lines.append(' '.join(current_line))
-                current_line = [word]
-        
-        if current_line:
-            lines.append(' '.join(current_line))
-        
-        total_height = 0
-        line_heights = []
-        for line in lines:
-            bbox = draw.textbbox((0, 0), line, font=font)
-            height = bbox[3] - bbox[1]
-            line_heights.append(height)
-            total_height += height + 10
-        
-        y = (EPD_HEIGHT - total_height) // 2
-        
-        for i, line in enumerate(lines):
-            bbox = draw.textbbox((0, 0), line, font=font)
-            width = bbox[2] - bbox[0]
-            x = (EPD_WIDTH - width) // 2
-            draw.text((x, y), line, font=font, fill='black')
-            y += line_heights[i] + 10
-        
-        return send_to_esp32(img)
-    except Exception as e:
-        print(f"Error: {e}")
-        return False
-
-def display_solid_color(color_name):
-    try:
-        colors = {
-            'black': (0, 0, 0),
-            'white': (255, 255, 255),
-            'green': (200, 200, 80),
-            'blue': (100, 120, 180),
-            'red': (200, 80, 50),
-            'yellow': (255, 255, 0)
-        }
-        
-        if color_name not in colors:
-            return False
-        
-        img = Image.new('RGB', (EPD_WIDTH, EPD_HEIGHT), colors[color_name])
-        return send_to_esp32(img)
-    except Exception as e:
-        print(f"Error: {e}")
-        return False
-
-def display_image_crop(image_path):
-    try:
-        img = Image.open(image_path)
-        
-        if img.mode != 'RGB':
-            img = img.convert('RGB')
-        
-        if img.height > img.width:
-            img = img.rotate(90, expand=True)
-        
-        img_ratio = img.width / img.height
-        display_ratio = EPD_WIDTH / EPD_HEIGHT
-        
-        if img_ratio > display_ratio:
-            new_height = EPD_HEIGHT
-            new_width = int(EPD_HEIGHT * img_ratio)
-        else:
-            new_width = EPD_WIDTH
-            new_height = int(EPD_WIDTH / img_ratio)
-        
-        img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-        img = img.filter(ImageFilter.SHARPEN)
-        enhancer = ImageEnhance.Contrast(img)
-        img = enhancer.enhance(1.3)
-        
-        left = (new_width - EPD_WIDTH) // 2
-        top = (new_height - EPD_HEIGHT) // 2
-        display_img = img.crop((left, top, left + EPD_WIDTH, top + EPD_HEIGHT))
-        
-        return send_to_esp32(display_img)
-    except Exception as e:
-        print(f"Error: {e}")
-        return False
-
-@app.route('/color/<color_name>')
-def display_color(color_name):
-    if display_solid_color(color_name):
-        return f'{color_name.capitalize()} displayed! <a href="/">Go back</a>'
-    else:
-        return 'Error. <a href="/">Go back</a>'
-
-@app.route('/')
-def index():
-    uploads = []
-    if os.path.exists(app.config['UPLOAD_FOLDER']):
-        files = os.listdir(app.config['UPLOAD_FOLDER'])
-        image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp'}
-        uploads = [f for f in files if os.path.splitext(f)[1].lower() in image_extensions]
-        uploads.sort(reverse=True)
-    
-    return render_template('index.html', uploads=uploads)
-
-@app.route('/upload', methods=['POST'])
-def upload_file():
-    if 'file' not in request.files:
-        return redirect(url_for('index'))
-    
-    file = request.files['file']
-    
-    if file.filename == '':
-        return redirect(url_for('index'))
-    
-    if file:
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        ext = os.path.splitext(file.filename)[1]
-        filename = f"{timestamp}{ext}"
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(filepath)
-        
-        if display_image(filepath):
-            return 'Image displayed! <a href="/">Go back</a>'
-        else:
-            return 'Error. <a href="/">Go back</a>'
-
-@app.route('/display/<filename>')
-def display_from_gallery(filename):
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    
-    if os.path.exists(filepath):
-        use_raw = request.args.get('raw') == 'true'
-        use_crop = request.args.get('crop') == 'true'
-        
-        if use_crop:
-            success = display_image_crop(filepath)
-        elif use_raw:
-            success = display_image_raw(filepath)
-        else:
-            success = display_image(filepath)
-        
-        if success:
-            return 'Image displayed! <a href="/">Go back</a>'
-        else:
-            return 'Error. <a href="/">Go back</a>'
-    else:
-        return 'Image not found. <a href="/">Go back</a>'
-
-@app.route('/uploads/<filename>')
-def uploaded_file(filename):
-    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
-
-@app.route('/text', methods=['POST'])
-def display_text_route():
-    text = request.form.get('text', '')
-    
-    if text:
-        if display_text(text):
-            return 'Text displayed! <a href="/">Go back</a>'
-        else:
-            return 'Error. <a href="/">Go back</a>'
-    
-    return redirect(url_for('index'))
-
-@app.route('/delete/<filename>', methods=['POST'])
-def delete_image(filename):
-    try:
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        
-        if os.path.exists(filepath) and os.path.dirname(os.path.abspath(filepath)) == os.path.abspath(app.config['UPLOAD_FOLDER']):
-            os.remove(filepath)
-            return 'Deleted', 200
-        else:
-            return 'Not found', 404
-    except Exception as e:
-        print(f"Error: {e}")
-        return 'Error', 500
+@app.route('/thumbnails/<filename>')
+def get_thumbnail(filename):
+    """Serve image thumbnails"""
+    return send_from_directory(UPLOAD_FOLDER, filename)
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    app.run(host='0.0.0.0', port=5000, debug=True)
