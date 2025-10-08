@@ -94,15 +94,23 @@ def convert_image_to_binary(image_path, mode='crop', use_dithering=True):
             new_height = 480
             new_width = int(480 * img_ratio)
         
+        print(f"Fit mode: resizing to {new_width}x{new_height}")
+        
         # Resize image
         img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        
+        # Ensure image is in RGB mode before pasting
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
         
         # Create white background and paste image centered
         final_img = Image.new('RGB', (800, 480), (255, 255, 255))
         x_offset = (800 - new_width) // 2
         y_offset = (480 - new_height) // 2
+        print(f"Pasting at offset ({x_offset}, {y_offset})")
         final_img.paste(img, (x_offset, y_offset))
         img = final_img
+        print(f"Final image size: {img.size}, mode: {img.mode}")
         
     else:  # crop mode
         # Crop mode: shortest axis = 480px, crop excess
