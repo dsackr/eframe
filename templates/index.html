@@ -1,209 +1,587 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>E-Paper Frame</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Paper Display Converter</title>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            max-width: 800px;
-            margin: 50px auto;
-            padding: 20px;
-            background: #f5f5f5;
-        }
-        .container {
-            background: white;
-            padding: 30px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        h1 {
-            color: #333;
-            margin-bottom: 30px;
-        }
-        .section {
-            margin-bottom: 40px;
-            padding-bottom: 30px;
-            border-bottom: 1px solid #eee;
-        }
-        .section:last-child {
-            border-bottom: none;
-        }
-        h2 {
-            color: #666;
-            font-size: 18px;
-            margin-bottom: 15px;
-        }
-        input[type="file"], textarea {
-            width: 100%;
-            padding: 10px;
-            margin-bottom: 10px;
-            border: 2px solid #ddd;
-            border-radius: 5px;
+        * {
+            margin: 0;
+            padding: 0;
             box-sizing: border-box;
         }
-        textarea {
-            height: 150px;
-            resize: vertical;
-            font-family: Arial, sans-serif;
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
         }
-        button {
-            background: #007bff;
-            color: white;
-            padding: 12px 30px;
+        
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 40px;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 2em;
+        }
+        
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 0.9em;
+        }
+        
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #eee;
+        }
+        
+        .tab {
+            padding: 12px 24px;
+            background: none;
             border: none;
-            border-radius: 5px;
             cursor: pointer;
-            font-size: 16px;
+            font-size: 1em;
+            color: #666;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s;
         }
-        button:hover {
-            background: #0056b3;
+        
+        .tab:hover {
+            color: #667eea;
         }
+        
+        .tab.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+            font-weight: 600;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .mode-selector {
+            margin-bottom: 25px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+        
+        .mode-selector h3 {
+            margin-bottom: 15px;
+            color: #333;
+            font-size: 1.1em;
+        }
+        
+        .mode-options {
+            display: flex;
+            gap: 15px;
+        }
+        
+        .mode-option {
+            flex: 1;
+            padding: 15px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: white;
+        }
+        
+        .mode-option:hover {
+            border-color: #667eea;
+            transform: translateY(-2px);
+        }
+        
+        .mode-option.selected {
+            border-color: #667eea;
+            background: #f0f4ff;
+        }
+        
+        .mode-option input[type="radio"] {
+            margin-right: 8px;
+        }
+        
+        .mode-option strong {
+            display: block;
+            margin-bottom: 5px;
+            color: #333;
+        }
+        
+        .mode-option small {
+            color: #666;
+            font-size: 0.85em;
+        }
+        
+        .upload-area {
+            border: 3px dashed #ddd;
+            border-radius: 12px;
+            padding: 40px;
+            text-align: center;
+            margin-bottom: 20px;
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+        
+        .upload-area:hover {
+            border-color: #667eea;
+            background: #f8f9ff;
+        }
+        
+        .upload-area.dragover {
+            border-color: #667eea;
+            background: #f0f4ff;
+        }
+        
+        .upload-icon {
+            font-size: 3em;
+            margin-bottom: 15px;
+        }
+        
+        input[type="file"] {
+            display: none;
+        }
+        
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 20px;
+            cursor: pointer;
+        }
+        
+        button {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1.1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.4);
+        }
+        
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            display: none;
+        }
+        
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
         .gallery {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
             gap: 15px;
-            margin-top: 15px;
+            margin-top: 20px;
         }
+        
         .gallery-item {
             position: relative;
             border: 2px solid #ddd;
-            border-radius: 5px;
+            border-radius: 8px;
             overflow: hidden;
             cursor: pointer;
-            transition: transform 0.2s;
+            transition: all 0.3s;
         }
+        
         .gallery-item:hover {
-            transform: scale(1.05);
-            border-color: #007bff;
+            border-color: #667eea;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
         }
+        
+        .gallery-item.selected {
+            border-color: #667eea;
+            border-width: 3px;
+        }
+        
         .gallery-item img {
             width: 100%;
-            height: 150px;
+            height: 120px;
             object-fit: cover;
-            display: block;
         }
-        .gallery-item-name {
-            padding: 5px;
-            font-size: 10px;
-            text-align: center;
-            background: #f8f8f8;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
+        
+        .gallery-item-info {
+            padding: 8px;
+            background: white;
+            font-size: 0.75em;
+            color: #666;
         }
-        .gallery-buttons {
-            display: flex;
-            gap: 2px;
-        }
-        .gallery-buttons button {
-            flex: 1;
-            padding: 5px;
-            font-size: 11px;
-        }
-        .color-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
-            gap: 10px;
-            margin-top: 15px;
-        }
-        .color-button {
-            padding: 20px;
-            border: 2px solid #ddd;
-            border-radius: 5px;
+        
+        .delete-btn {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background: rgba(220, 53, 69, 0.9);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 25px;
+            height: 25px;
             cursor: pointer;
+            font-size: 0.9em;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        
+        .gallery-item:hover .delete-btn {
+            opacity: 1;
+        }
+        
+        .empty-state {
             text-align: center;
-            font-weight: bold;
-            transition: transform 0.2s;
+            padding: 40px;
+            color: #999;
         }
-        .color-button:hover {
-            transform: scale(1.05);
+        
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-left: 10px;
         }
-        .color-black { background: #000; color: white; }
-        .color-white { background: #fff; color: black; border-color: #999; }
-        .color-green { background: #c8c850; color: black; }
-        .color-blue { background: #647cb4; color: white; }
-        .color-red { background: #c85032; color: white; }
-        .color-yellow { background: #ff0; color: black; }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>📸 E-Paper Digital Frame</h1>
+        <h1>🖼️ E-Paper Display Converter</h1>
+        <p class="subtitle">Upload new images or select from previously uploaded images</p>
         
-        <div class="section">
-            <h2>Upload Image</h2>
-            <form action="/upload" method="post" enctype="multipart/form-data">
-                <input type="file" name="file" accept="image/*" required>
-                <button type="submit">Display Image</button>
-            </form>
-            <p style="color: #666; font-size: 12px; margin-top: 10px;">Images are automatically dithered for best quality</p>
+        <div class="tabs">
+            <button class="tab active" data-tab="upload">Upload New</button>
+            <button class="tab" data-tab="stored">Stored Images</button>
         </div>
         
-        <div class="section">
-            <h2>Display Text</h2>
-            <form action="/text" method="post">
-                <textarea name="text" placeholder="Enter text to display..." required></textarea>
-                <button type="submit">Display Text</button>
-            </form>
-        </div>
-        
-        <div class="section">
-            <h2>Test Colors</h2>
-            <p style="color: #666; font-size: 14px; margin-bottom: 10px;">Click to fill the entire display with a solid color</p>
-            <div class="color-grid">
-                <div class="color-button color-black" onclick="displayColor('black')">Black</div>
-                <div class="color-button color-white" onclick="displayColor('white')">White</div>
-                <div class="color-button color-green" onclick="displayColor('green')">Green</div>
-                <div class="color-button color-blue" onclick="displayColor('blue')">Blue</div>
-                <div class="color-button color-red" onclick="displayColor('red')">Red</div>
-                <div class="color-button color-yellow" onclick="displayColor('yellow')">Yellow</div>
-            </div>
-        </div>
-        
-        {% if uploads %}
-        <div class="section">
-            <h2>Previously Uploaded Images</h2>
-            <div class="gallery">
-                {% for filename in uploads %}
-                <div class="gallery-item">
-                    <img src="/uploads/{{ filename }}" alt="{{ filename }}">
-                    <div class="gallery-item-name" title="{{ filename }}">{{ filename }}</div>
-                    <div class="gallery-buttons">
-                        <button onclick="displayImage('{{ filename }}', false, false)">Fit</button>
-                        <button onclick="displayImage('{{ filename }}', false, true)" style="background: #ff9800;">Crop</button>
-                        <button onclick="displayImage('{{ filename }}', true, false)" style="background: #28a745;">Raw</button>
-                        <button onclick="deleteImage('{{ filename }}')" style="background: #dc3545;">Del</button>
-                    </div>
+        <!-- Upload Tab -->
+        <div class="tab-content active" id="upload-tab">
+            <div class="mode-selector">
+                <h3>Display Mode</h3>
+                <div class="mode-options">
+                    <label class="mode-option selected">
+                        <input type="radio" name="mode" value="fit" checked>
+                        <strong>Fit</strong>
+                        <small>Longest axis = 800px, adds borders if needed</small>
+                    </label>
+                    <label class="mode-option">
+                        <input type="radio" name="mode" value="crop">
+                        <strong>Crop</strong>
+                        <small>Shortest axis = 480px, crops excess</small>
+                    </label>
                 </div>
-                {% endfor %}
             </div>
+            
+            <div class="upload-area" id="uploadArea">
+                <div class="upload-icon">📁</div>
+                <p><strong>Click to upload</strong> or drag and drop</p>
+                <p style="color: #999; font-size: 0.9em; margin-top: 10px;">PNG, JPG, GIF, BMP, or WebP</p>
+                <input type="file" id="fileInput" accept="image/*">
+            </div>
+            
+            <label class="checkbox-label">
+                <input type="checkbox" id="saveImage" checked>
+                <span>Save image for future use</span>
+            </label>
+            
+            <button id="uploadBtn" disabled>Upload & Display</button>
+            
+            <div class="status" id="uploadStatus"></div>
         </div>
-        {% endif %}
+        
+        <!-- Stored Images Tab -->
+        <div class="tab-content" id="stored-tab">
+            <div class="mode-selector">
+                <h3>Display Mode</h3>
+                <div class="mode-options">
+                    <label class="mode-option selected">
+                        <input type="radio" name="stored-mode" value="fit" checked>
+                        <strong>Fit</strong>
+                        <small>Longest axis = 800px, adds borders if needed</small>
+                    </label>
+                    <label class="mode-option">
+                        <input type="radio" name="stored-mode" value="crop">
+                        <strong>Crop</strong>
+                        <small>Shortest axis = 480px, crops excess</small>
+                    </label>
+                </div>
+            </div>
+            
+            <button id="displayStoredBtn" disabled>Display Selected Image</button>
+            
+            <div class="gallery" id="gallery">
+                <div class="empty-state">No stored images yet</div>
+            </div>
+            
+            <div class="status" id="storedStatus"></div>
+        </div>
     </div>
-    
+
     <script>
-        function displayImage(filename, raw, crop) {
-            let url = '/display/' + filename + '?raw=' + raw + '&crop=' + crop;
-            window.location.href = url;
-        }
-        
-        function displayColor(color) {
-            window.location.href = '/color/' + color;
-        }
-        
-        function deleteImage(filename) {
-            if (confirm('Are you sure you want to delete ' + filename + '?')) {
-                fetch('/delete/' + filename, {
-                    method: 'POST'
-                })
-                .then(response => {
-                    if (response.ok) {
-                        location.reload();
-                    } else {
-                        alert('Error deleting image');
-                    }
+        let selectedFile = null;
+        let selectedStoredImage = null;
+
+        // Tab switching
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                const tabName = tab.dataset.tab;
+                
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                
+                tab.classList.add('active');
+                document.getElementById(`${tabName}-tab`).classList.add('active');
+                
+                if (tabName === 'stored') {
+                    loadStoredImages();
+                }
+            });
+        });
+
+        // Mode selector styling
+        document.querySelectorAll('.mode-option').forEach(option => {
+            option.addEventListener('click', () => {
+                option.closest('.mode-options').querySelectorAll('.mode-option').forEach(o => {
+                    o.classList.remove('selected');
                 });
+                option.classList.add('selected');
+                option.querySelector('input').checked = true;
+            });
+        });
+
+        // File upload handling
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const uploadBtn = document.getElementById('uploadBtn');
+
+        uploadArea.addEventListener('click', () => fileInput.click());
+
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            
+            if (e.dataTransfer.files.length > 0) {
+                handleFileSelect(e.dataTransfer.files[0]);
             }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFileSelect(e.target.files[0]);
+            }
+        });
+
+        function handleFileSelect(file) {
+            selectedFile = file;
+            uploadArea.querySelector('p').innerHTML = `<strong>${file.name}</strong> selected`;
+            uploadBtn.disabled = false;
+        }
+
+        uploadBtn.addEventListener('click', async () => {
+            if (!selectedFile) return;
+            
+            const formData = new FormData();
+            formData.append('image', selectedFile);
+            formData.append('mode', document.querySelector('input[name="mode"]:checked').value);
+            formData.append('save', document.getElementById('saveImage').checked);
+            
+            uploadBtn.disabled = true;
+            uploadBtn.innerHTML = 'Uploading...<span class="loading"></span>';
+            
+            try {
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showStatus('uploadStatus', 'Image successfully displayed on e-paper!', 'success');
+                    
+                    // Reset
+                    selectedFile = null;
+                    fileInput.value = '';
+                    uploadArea.querySelector('p').innerHTML = '<strong>Click to upload</strong> or drag and drop';
+                    uploadBtn.disabled = true;
+                } else {
+                    showStatus('uploadStatus', result.error, 'error');
+                }
+            } catch (error) {
+                showStatus('uploadStatus', `Error: ${error.message}`, 'error');
+            } finally {
+                uploadBtn.disabled = false;
+                uploadBtn.innerHTML = 'Upload & Display';
+            }
+        });
+
+        // Stored images handling
+        const displayStoredBtn = document.getElementById('displayStoredBtn');
+        
+        async function loadStoredImages() {
+            try {
+                const response = await fetch('/stored-images');
+                const images = await response.json();
+                
+                const gallery = document.getElementById('gallery');
+                
+                if (images.length === 0) {
+                    gallery.innerHTML = '<div class="empty-state">No stored images yet</div>';
+                    return;
+                }
+                
+                gallery.innerHTML = images.map(img => `
+                    <div class="gallery-item" data-filename="${img.filename}">
+                        <img src="/thumbnails/${img.filename}" alt="${img.original_name}">
+                        <div class="gallery-item-info">
+                            ${img.original_name.substring(0, 20)}${img.original_name.length > 20 ? '...' : ''}
+                        </div>
+                        <button class="delete-btn" onclick="deleteImage('${img.filename}', event)">×</button>
+                    </div>
+                `).join('');
+                
+                // Add click handlers
+                document.querySelectorAll('.gallery-item').forEach(item => {
+                    item.addEventListener('click', (e) => {
+                        if (e.target.classList.contains('delete-btn')) return;
+                        
+                        document.querySelectorAll('.gallery-item').forEach(i => i.classList.remove('selected'));
+                        item.classList.add('selected');
+                        selectedStoredImage = item.dataset.filename;
+                        displayStoredBtn.disabled = false;
+                    });
+                });
+                
+            } catch (error) {
+                showStatus('storedStatus', `Error loading images: ${error.message}`, 'error');
+            }
+        }
+
+        displayStoredBtn.addEventListener('click', async () => {
+            if (!selectedStoredImage) return;
+            
+            const mode = document.querySelector('input[name="stored-mode"]:checked').value;
+            
+            displayStoredBtn.disabled = true;
+            displayStoredBtn.innerHTML = 'Displaying...<span class="loading"></span>';
+            
+            try {
+                const response = await fetch('/display-stored', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        filename: selectedStoredImage,
+                        mode: mode
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showStatus('storedStatus', 'Image successfully displayed on e-paper!', 'success');
+                } else {
+                    showStatus('storedStatus', result.error, 'error');
+                }
+            } catch (error) {
+                showStatus('storedStatus', `Error: ${error.message}`, 'error');
+            } finally {
+                displayStoredBtn.disabled = false;
+                displayStoredBtn.innerHTML = 'Display Selected Image';
+            }
+        });
+
+        async function deleteImage(filename, event) {
+            event.stopPropagation();
+            
+            if (!confirm('Delete this image?')) return;
+            
+            try {
+                const response = await fetch(`/delete-stored/${filename}`, {
+                    method: 'DELETE'
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    loadStoredImages();
+                    selectedStoredImage = null;
+                    displayStoredBtn.disabled = true;
+                } else {
+                    showStatus('storedStatus', result.error, 'error');
+                }
+            } catch (error) {
+                showStatus('storedStatus', `Error: ${error.message}`, 'error');
+            }
+        }
+
+        function showStatus(elementId, message, type) {
+            const status = document.getElementById(elementId);
+            status.textContent = message;
+            status.className = `status ${type}`;
+            status.style.display = 'block';
+            
+            setTimeout(() => {
+                status.style.display = 'none';
+            }, 5000);
         }
     </script>
 </body>
