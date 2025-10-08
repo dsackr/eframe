@@ -43,10 +43,10 @@ def save_metadata(metadata):
     with open(METADATA_FILE, 'w') as f:
         json.dump(metadata, f, indent=2)
 
-def resize_image_to_display(image_path, mode='crop'):
+def prepare_image_800x480(image_path):
     """
-    Resize/crop image to 800x480 and save as PNG
-    Returns the path to the converted image
+    STEP 1: Simply resize/rotate image to 800x480
+    This is just the basic prep - no dithering or conversion
     """
     img = Image.open(image_path)
     
@@ -63,52 +63,23 @@ def resize_image_to_display(image_path, mode='crop'):
         img.thumbnail((2400, 1440), Image.Resampling.LANCZOS)
         print(f"Pre-scaled large image to {img.width}x{img.height}")
     
-    # Calculate dimensions based on mode
+    # Calculate crop-to-fill dimensions (ORIGINAL CROP LOGIC)
     img_ratio = img.width / img.height
     display_ratio = 800 / 480
     
-    if mode == 'fit':
-        # Fit mode: longest axis = 800px, add borders if needed
-        if img_ratio > display_ratio:
-            # Image is wider than display
-            new_width = 800
-            new_height = int(800 / img_ratio)
-        else:
-            # Image is taller than display
-            new_height = 480
-            new_width = int(480 * img_ratio)
-        
-        print(f"Fit mode: resizing to {new_width}x{new_height}")
-        
-        # Resize image
-        img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-        
-        # Create white background and paste image centered
-        final_img = Image.new('RGB', (800, 480), (255, 255, 255))
-        x_offset = (800 - new_width) // 2
-        y_offset = (480 - new_height) // 2
-        final_img.paste(img, (x_offset, y_offset))
-        img = final_img
-        
-    else:  # crop mode (original behavior)
-        # Crop mode: shortest axis = 480px, crop excess
-        if img_ratio > display_ratio:
-            new_height = 480
-            new_width = int(480 * img_ratio)
-        else:
-            new_width = 800
-            new_height = int(800 / img_ratio)
-        
-        print(f"Crop mode: resizing to {new_width}x{new_height}")
-        
-        img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-        
-        # Crop to center
-        left = (new_width - 800) // 2
-        top = (new_height - 480) // 2
-        img = img.crop((left, top, left + 800, top + 480))
+    if img_ratio > display_ratio:
+        new_height = 480
+        new_width = int(480 * img_ratio)
+    else:
+        new_width = 800
+        new_height = int(800 / img_ratio)
     
-    print(f"Final image size: {img.size}, mode: {img.mode}")
+    img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+    left = (new_width - 800) // 2
+    top = (new_height - 480) // 2
+    img = img.crop((left, top, left + 800, top + 480))
+    
+    print(f"Final prepared image: {img.size}, mode: {img.mode}")
     return img
 
 def rgb_to_palette_code(r, g, b):
@@ -124,22 +95,20 @@ def rgb_to_palette_code(r, g, b):
     
     return closest_code
 
-def convert_image_to_binary(image_path_or_img, use_dithering=True):
+def convert_image_to_binary(image_path, use_dithering=True):
     """
-    Convert 800x480 image to binary format
-    THIS IS THE ORIGINAL WORKING CONVERSION LOGIC
-    Accepts either a file path or a PIL Image object
+    STEP 2: EXACT ORIGINAL CONVERSION LOGIC
+    Convert 800x480 image to binary format with dithering
+    This is the ORIGINAL working code - unchanged
     """
-    if isinstance(image_path_or_img, str):
-        img = Image.open(image_path_or_img)
-    else:
-        img = image_path_or_img
+    img = Image.open(image_path)
     
     if img.mode != 'RGB':
         img = img.convert('RGB')
     
     # Image should already be 800x480 at this point
-    assert img.size == (800, 480), f"Image must be 800x480, got {img.size}"
+    if img.size != (800, 480):
+        raise ValueError(f"Image must be 800x480, got {img.size}")
     
     if use_dithering:
         palette_data = [
@@ -178,7 +147,7 @@ def index():
 
 @app.route('/upload', methods=['POST'])
 def upload():
-    """STEP 1: Upload and convert image to 800x480, save it"""
+    """STEP 1: Upload image, resize to 800x480, save to library"""
     if 'image' not in request.files:
         return jsonify({'error': 'No file uploaded'}), 400
     
@@ -191,23 +160,21 @@ def upload():
         return jsonify({'error': 'Invalid file type'}), 400
     
     try:
-        mode = request.form.get('mode', 'crop')
-        
         # Save uploaded file temporarily
         filename = secure_filename(file.filename)
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         temp_path = os.path.join(UPLOAD_FOLDER, f"temp_{filename}")
         file.save(temp_path)
         
-        # Convert to 800x480
-        converted_img = resize_image_to_display(temp_path, mode=mode)
+        # Prepare to 800x480
+        prepared_img = prepare_image_800x480(temp_path)
         
-        # Save the converted 800x480 image
-        converted_filename = f"{timestamp}_{filename}"
-        if not converted_filename.lower().endswith('.png'):
-            converted_filename = converted_filename.rsplit('.', 1)[0] + '.png'
-        converted_path = os.path.join(UPLOAD_FOLDER, converted_filename)
-        converted_img.save(converted_path, 'PNG')
+        # Save as PNG
+        final_filename = f"{timestamp}_{filename}"
+        if not final_filename.lower().endswith('.png'):
+            final_filename = final_filename.rsplit('.', 1)[0] + '.png'
+        final_path = os.path.join(UPLOAD_FOLDER, final_filename)
+        prepared_img.save(final_path, 'PNG')
         
         # Remove temp file
         os.remove(temp_path)
@@ -215,17 +182,16 @@ def upload():
         # Update metadata
         metadata = load_metadata()
         metadata.append({
-            'filename': converted_filename,
+            'filename': final_filename,
             'original_name': file.filename,
-            'upload_date': datetime.now().isoformat(),
-            'mode': mode
+            'upload_date': datetime.now().isoformat()
         })
         save_metadata(metadata)
         
         return jsonify({
             'success': True,
-            'message': 'Image converted and saved!',
-            'filename': converted_filename
+            'message': 'Image saved to library!',
+            'filename': final_filename
         })
             
     except Exception as e:
@@ -242,7 +208,7 @@ def get_stored_images():
 
 @app.route('/display', methods=['POST'])
 def display():
-    """STEP 2: Take a stored 800x480 image and send to display using ORIGINAL logic"""
+    """STEP 2: Use EXACT ORIGINAL conversion logic and send to display"""
     data = request.get_json()
     filename = data.get('filename')
     
@@ -255,12 +221,12 @@ def display():
         return jsonify({'error': 'File not found'}), 404
     
     try:
-        print(f"Converting {filename} to binary using ORIGINAL conversion logic...")
+        print(f"Converting {filename} using ORIGINAL conversion logic...")
         
-        # Use the ORIGINAL conversion logic
+        # Use EXACT original conversion
         binary_data = convert_image_to_binary(filepath)
         
-        print(f"Sending to ESP32...")
+        print(f"Sending {len(binary_data)} bytes to ESP32...")
         response = requests.post(
             f'http://{ESP32_IP}/display',
             files={'file': ('image.bin', binary_data)},
