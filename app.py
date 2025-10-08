@@ -43,26 +43,10 @@ def save_metadata(metadata):
     with open(METADATA_FILE, 'w') as f:
         json.dump(metadata, f, indent=2)
 
-def rgb_to_palette_code(r, g, b):
-    """Find closest color in palette"""
-    min_distance = float('inf')
-    closest_code = 0x1
-    
-    for color_name, (pr, pg, pb, code) in PALETTE.items():
-        distance = (r - pr)**2 + (g - pg)**2 + (b - pb)**2
-        if distance < min_distance:
-            min_distance = distance
-            closest_code = code
-    
-    return closest_code
-
-def convert_image_to_binary(image_path, mode='crop', use_dithering=True):
+def resize_image_to_display(image_path, mode='crop'):
     """
-    Convert image to 800x480 binary format
-    
-    mode:
-        'fit' - longest axis fits 800px, leaves borders if needed
-        'crop' - shortest axis fits 480px, crops excess
+    Resize/crop image to 800x480 and save as PNG
+    Returns the path to the converted image
     """
     img = Image.open(image_path)
     
@@ -99,29 +83,23 @@ def convert_image_to_binary(image_path, mode='crop', use_dithering=True):
         # Resize image
         img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
         
-        # Ensure image is in RGB mode before pasting
-        if img.mode != 'RGB':
-            img = img.convert('RGB')
-        
         # Create white background and paste image centered
         final_img = Image.new('RGB', (800, 480), (255, 255, 255))
         x_offset = (800 - new_width) // 2
         y_offset = (480 - new_height) // 2
-        print(f"Pasting at offset ({x_offset}, {y_offset})")
         final_img.paste(img, (x_offset, y_offset))
         img = final_img
-        print(f"Final image size: {img.size}, mode: {img.mode}")
         
-    else:  # crop mode
+    else:  # crop mode (original behavior)
         # Crop mode: shortest axis = 480px, crop excess
         if img_ratio > display_ratio:
-            # Image is wider than display - fit height, crop width
             new_height = 480
             new_width = int(480 * img_ratio)
         else:
-            # Image is taller than display - fit width, crop height
             new_width = 800
             new_height = int(800 / img_ratio)
+        
+        print(f"Crop mode: resizing to {new_width}x{new_height}")
         
         img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
         
@@ -129,6 +107,39 @@ def convert_image_to_binary(image_path, mode='crop', use_dithering=True):
         left = (new_width - 800) // 2
         top = (new_height - 480) // 2
         img = img.crop((left, top, left + 800, top + 480))
+    
+    print(f"Final image size: {img.size}, mode: {img.mode}")
+    return img
+
+def rgb_to_palette_code(r, g, b):
+    """Find closest color in palette"""
+    min_distance = float('inf')
+    closest_code = 0x1
+    
+    for color_name, (pr, pg, pb, code) in PALETTE.items():
+        distance = (r - pr)**2 + (g - pg)**2 + (b - pb)**2
+        if distance < min_distance:
+            min_distance = distance
+            closest_code = code
+    
+    return closest_code
+
+def convert_image_to_binary(image_path_or_img, use_dithering=True):
+    """
+    Convert 800x480 image to binary format
+    THIS IS THE ORIGINAL WORKING CONVERSION LOGIC
+    Accepts either a file path or a PIL Image object
+    """
+    if isinstance(image_path_or_img, str):
+        img = Image.open(image_path_or_img)
+    else:
+        img = image_path_or_img
+    
+    if img.mode != 'RGB':
+        img = img.convert('RGB')
+    
+    # Image should already be 800x480 at this point
+    assert img.size == (800, 480), f"Image must be 800x480, got {img.size}"
     
     if use_dithering:
         palette_data = [
@@ -167,6 +178,7 @@ def index():
 
 @app.route('/upload', methods=['POST'])
 def upload():
+    """STEP 1: Upload and convert image to 800x480, save it"""
     if 'image' not in request.files:
         return jsonify({'error': 'No file uploaded'}), 400
     
@@ -180,53 +192,46 @@ def upload():
     
     try:
         mode = request.form.get('mode', 'crop')
-        save_image = request.form.get('save', 'false').lower() == 'true'
         
-        # Save file if requested
-        stored_filename = None
-        if save_image:
-            filename = secure_filename(file.filename)
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            stored_filename = f"{timestamp}_{filename}"
-            filepath = os.path.join(UPLOAD_FOLDER, stored_filename)
-            file.save(filepath)
-            
-            # Update metadata
-            metadata = load_metadata()
-            metadata.append({
-                'filename': stored_filename,
-                'original_name': file.filename,
-                'upload_date': datetime.now().isoformat(),
-                'mode': mode
-            })
-            save_metadata(metadata)
-            
-            # Use saved file for conversion
-            file_to_convert = filepath
-        else:
-            # Use uploaded file directly
-            file_to_convert = file
+        # Save uploaded file temporarily
+        filename = secure_filename(file.filename)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        temp_path = os.path.join(UPLOAD_FOLDER, f"temp_{filename}")
+        file.save(temp_path)
         
-        binary_data = convert_image_to_binary(file_to_convert, mode=mode)
+        # Convert to 800x480
+        converted_img = resize_image_to_display(temp_path, mode=mode)
         
-        response = requests.post(
-            f'http://{ESP32_IP}/display',
-            files={'file': ('image.bin', binary_data)},
-            headers={'Connection': 'keep-alive'},
-            timeout=120
-        )
+        # Save the converted 800x480 image
+        converted_filename = f"{timestamp}_{filename}"
+        if not converted_filename.lower().endswith('.png'):
+            converted_filename = converted_filename.rsplit('.', 1)[0] + '.png'
+        converted_path = os.path.join(UPLOAD_FOLDER, converted_filename)
+        converted_img.save(converted_path, 'PNG')
         
-        if response.status_code == 200:
-            return jsonify({
-                'success': True, 
-                'message': 'Image displayed!',
-                'saved': save_image,
-                'filename': stored_filename if save_image else None
-            })
-        else:
-            return jsonify({'error': f'ESP32 error: {response.status_code}'}), 500
+        # Remove temp file
+        os.remove(temp_path)
+        
+        # Update metadata
+        metadata = load_metadata()
+        metadata.append({
+            'filename': converted_filename,
+            'original_name': file.filename,
+            'upload_date': datetime.now().isoformat(),
+            'mode': mode
+        })
+        save_metadata(metadata)
+        
+        return jsonify({
+            'success': True,
+            'message': 'Image converted and saved!',
+            'filename': converted_filename
+        })
             
     except Exception as e:
+        print(f"Error during upload: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/stored-images', methods=['GET'])
@@ -235,12 +240,11 @@ def get_stored_images():
     metadata = load_metadata()
     return jsonify(metadata)
 
-@app.route('/display-stored', methods=['POST'])
-def display_stored():
-    """Display a previously stored image"""
+@app.route('/display', methods=['POST'])
+def display():
+    """STEP 2: Take a stored 800x480 image and send to display using ORIGINAL logic"""
     data = request.get_json()
     filename = data.get('filename')
-    mode = data.get('mode', 'crop')
     
     if not filename:
         return jsonify({'error': 'No filename provided'}), 400
@@ -251,8 +255,12 @@ def display_stored():
         return jsonify({'error': 'File not found'}), 404
     
     try:
-        binary_data = convert_image_to_binary(filepath, mode=mode)
+        print(f"Converting {filename} to binary using ORIGINAL conversion logic...")
         
+        # Use the ORIGINAL conversion logic
+        binary_data = convert_image_to_binary(filepath)
+        
+        print(f"Sending to ESP32...")
         response = requests.post(
             f'http://{ESP32_IP}/display',
             files={'file': ('image.bin', binary_data)},
@@ -266,6 +274,9 @@ def display_stored():
             return jsonify({'error': f'ESP32 error: {response.status_code}'}), 500
             
     except Exception as e:
+        print(f"Error during display: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/delete-stored/<filename>', methods=['DELETE'])
