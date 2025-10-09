@@ -226,7 +226,7 @@ def display():
         
         print(f"Sending {len(binary_data)} bytes to ESP32...")
         response = requests.post(
-            f'http://{ESP32_IP}/display',
+            f'http://{ESP32_IP}/display?refresh=full',
             files={'file': ('image.bin', binary_data)},
             headers={'Connection': 'close'},
             timeout=120
