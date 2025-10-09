@@ -117,19 +117,23 @@ def upload():
         return jsonify({'error': 'No file selected'}), 400
     
     try:
+        # Read file data into memory
+        file_data = file.read()
+        file_bytes = io.BytesIO(file_data)
+        
         # Generate unique filename with timestamp
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         original_ext = os.path.splitext(file.filename)[1]
         saved_filename = f"{timestamp}{original_ext}"
         saved_path = os.path.join(UPLOAD_FOLDER, saved_filename)
         
-        # Convert from the in-memory file first (original behavior)
-        binary_data = convert_image_to_binary(file)
-        
-        # Now save the file for archival (seek back to start first)
-        file.seek(0)
-        file.save(saved_path)
+        # Save the file to disk
+        with open(saved_path, 'wb') as f:
+            f.write(file_data)
         print(f"Saved image to {saved_path}")
+        
+        # Convert using the in-memory bytes (original behavior)
+        binary_data = convert_image_to_binary(file_bytes)
         
         response = requests.post(
             f'http://{ESP32_IP}/display',
