@@ -5,11 +5,13 @@ Handles image conversion to 6-color e-paper format
 """
 
 from flask import Flask, request, send_file, jsonify, render_template_string
+from flask_cors import CORS
 from PIL import Image, ImageDraw, ImageFont
 import io
 import struct
 
 app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
 
 # E-Paper specs
 EPD_WIDTH = 800
