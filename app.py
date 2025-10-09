@@ -123,12 +123,13 @@ def upload():
         saved_filename = f"{timestamp}{original_ext}"
         saved_path = os.path.join(UPLOAD_FOLDER, saved_filename)
         
-        # Save the original uploaded file
+        # Convert from the in-memory file first (original behavior)
+        binary_data = convert_image_to_binary(file)
+        
+        # Now save the file for archival (seek back to start first)
+        file.seek(0)
         file.save(saved_path)
         print(f"Saved image to {saved_path}")
-        
-        # Convert and send to ESP32
-        binary_data = convert_image_to_binary(saved_path)
         
         response = requests.post(
             f'http://{ESP32_IP}/display',
