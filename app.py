@@ -3,20 +3,17 @@ from PIL import Image
 import requests
 import io
 import os
-import json
 from datetime import datetime
-from werkzeug.utils import secure_filename
+from pathlib import Path
 
 app = Flask(__name__)
 
-# Configuration
+# Your ESP32 IP address
 ESP32_IP = "192.168.86.127"
-UPLOAD_FOLDER = 'stored_images'
-METADATA_FILE = 'image_metadata.json'
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'}
 
-# Create upload folder if it doesn't exist
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+# Directory to store uploaded images
+UPLOAD_FOLDER = 'uploaded_images'
+Path(UPLOAD_FOLDER).mkdir(exist_ok=True)
 
 # Corrected 6-color palette
 PALETTE = {
@@ -27,60 +24,6 @@ PALETTE = {
     'blue': (100, 120, 180, 0x5),
     'green': (200, 200, 80, 0x6)
 }
-
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
-def load_metadata():
-    """Load image metadata from JSON file"""
-    if os.path.exists(METADATA_FILE):
-        with open(METADATA_FILE, 'r') as f:
-            return json.load(f)
-    return []
-
-def save_metadata(metadata):
-    """Save image metadata to JSON file"""
-    with open(METADATA_FILE, 'w') as f:
-        json.dump(metadata, f, indent=2)
-
-def prepare_image_800x480(image_path):
-    """
-    STEP 1: Simply resize/rotate image to 800x480
-    This is just the basic prep - no dithering or conversion
-    """
-    img = Image.open(image_path)
-    
-    if img.mode != 'RGB':
-        img = img.convert('RGB')
-    
-    # Auto-rotate portrait to landscape
-    if img.height > img.width:
-        img = img.rotate(90, expand=True)
-        print(f"Rotated portrait image to landscape")
-    
-    # Downscale very large images first
-    if img.width > 2400 or img.height > 1440:
-        img.thumbnail((2400, 1440), Image.Resampling.LANCZOS)
-        print(f"Pre-scaled large image to {img.width}x{img.height}")
-    
-    # Calculate crop-to-fill dimensions (ORIGINAL CROP LOGIC)
-    img_ratio = img.width / img.height
-    display_ratio = 800 / 480
-    
-    if img_ratio > display_ratio:
-        new_height = 480
-        new_width = int(480 * img_ratio)
-    else:
-        new_width = 800
-        new_height = int(800 / img_ratio)
-    
-    img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-    left = (new_width - 800) // 2
-    top = (new_height - 480) // 2
-    img = img.crop((left, top, left + 800, top + 480))
-    
-    print(f"Final prepared image: {img.size}, mode: {img.mode}")
-    return img
 
 def rgb_to_palette_code(r, g, b):
     """Find closest color in palette"""
@@ -165,7 +108,6 @@ def index():
 
 @app.route('/upload', methods=['POST'])
 def upload():
-    """STEP 1: Upload image, resize to 800x480, save to library"""
     if 'image' not in request.files:
         return jsonify({'error': 'No file uploaded'}), 400
     
@@ -174,77 +116,20 @@ def upload():
     if file.filename == '':
         return jsonify({'error': 'No file selected'}), 400
     
-    if not allowed_file(file.filename):
-        return jsonify({'error': 'Invalid file type'}), 400
-    
     try:
-        # Save uploaded file temporarily
-        filename = secure_filename(file.filename)
+        # Generate unique filename with timestamp
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        temp_path = os.path.join(UPLOAD_FOLDER, f"temp_{filename}")
-        file.save(temp_path)
+        original_ext = os.path.splitext(file.filename)[1]
+        saved_filename = f"{timestamp}{original_ext}"
+        saved_path = os.path.join(UPLOAD_FOLDER, saved_filename)
         
-        # Prepare to 800x480
-        prepared_img = prepare_image_800x480(temp_path)
+        # Save the original uploaded file
+        file.save(saved_path)
+        print(f"Saved image to {saved_path}")
         
-        # Save as PNG
-        final_filename = f"{timestamp}_{filename}"
-        if not final_filename.lower().endswith('.png'):
-            final_filename = final_filename.rsplit('.', 1)[0] + '.png'
-        final_path = os.path.join(UPLOAD_FOLDER, final_filename)
-        prepared_img.save(final_path, 'PNG')
+        # Convert and send to ESP32
+        binary_data = convert_image_to_binary(saved_path)
         
-        # Remove temp file
-        os.remove(temp_path)
-        
-        # Update metadata
-        metadata = load_metadata()
-        metadata.append({
-            'filename': final_filename,
-            'original_name': file.filename,
-            'upload_date': datetime.now().isoformat()
-        })
-        save_metadata(metadata)
-        
-        return jsonify({
-            'success': True,
-            'message': 'Image saved to library!',
-            'filename': final_filename
-        })
-            
-    except Exception as e:
-        print(f"Error during upload: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/stored-images', methods=['GET'])
-def get_stored_images():
-    """Get list of stored images"""
-    metadata = load_metadata()
-    return jsonify(metadata)
-
-@app.route('/display', methods=['POST'])
-def display():
-    """STEP 2: Use EXACT ORIGINAL conversion logic and send to display"""
-    data = request.get_json()
-    filename = data.get('filename')
-    
-    if not filename:
-        return jsonify({'error': 'No filename provided'}), 400
-    
-    filepath = os.path.join(UPLOAD_FOLDER, filename)
-    
-    if not os.path.exists(filepath):
-        return jsonify({'error': 'File not found'}), 404
-    
-    try:
-        print(f"Converting {filename} using ORIGINAL conversion logic...")
-        
-        # Use EXACT original conversion
-        binary_data = convert_image_to_binary(filepath)
-        
-        print(f"Sending {len(binary_data)} bytes to ESP32...")
         response = requests.post(
             f'http://{ESP32_IP}/display',
             files={'file': ('image.bin', binary_data)},
@@ -253,40 +138,59 @@ def display():
         )
         
         if response.status_code == 200:
-            return jsonify({'success': True, 'message': 'Image displayed!'})
+            return jsonify({
+                'success': True, 
+                'message': 'Image displayed!',
+                'filename': saved_filename
+            })
         else:
             return jsonify({'error': f'ESP32 error: {response.status_code}'}), 500
             
     except Exception as e:
-        print(f"Error during display: {e}")
-        import traceback
-        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
-@app.route('/delete-stored/<filename>', methods=['DELETE'])
-def delete_stored(filename):
-    """Delete a stored image"""
-    filepath = os.path.join(UPLOAD_FOLDER, filename)
-    
-    if not os.path.exists(filepath):
-        return jsonify({'error': 'File not found'}), 404
-    
+@app.route('/images')
+def list_images():
+    """Return list of uploaded images"""
     try:
-        os.remove(filepath)
-        
-        # Update metadata
-        metadata = load_metadata()
-        metadata = [m for m in metadata if m['filename'] != filename]
-        save_metadata(metadata)
-        
-        return jsonify({'success': True, 'message': 'Image deleted'})
+        files = os.listdir(UPLOAD_FOLDER)
+        # Filter for image files and sort by most recent first
+        image_files = [f for f in files if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp'))]
+        image_files.sort(reverse=True)
+        return jsonify({'images': image_files})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/thumbnails/<filename>')
-def get_thumbnail(filename):
-    """Serve image thumbnails"""
+@app.route('/images/<filename>')
+def serve_image(filename):
+    """Serve uploaded image files"""
     return send_from_directory(UPLOAD_FOLDER, filename)
+
+@app.route('/redisplay/<filename>', methods=['POST'])
+def redisplay(filename):
+    """Re-display a previously uploaded image"""
+    try:
+        image_path = os.path.join(UPLOAD_FOLDER, filename)
+        
+        if not os.path.exists(image_path):
+            return jsonify({'error': 'Image not found'}), 404
+        
+        binary_data = convert_image_to_binary(image_path)
+        
+        response = requests.post(
+            f'http://{ESP32_IP}/display',
+            files={'file': ('image.bin', binary_data)},
+            headers={'Connection': 'keep-alive'},
+            timeout=120
+        )
+        
+        if response.status_code == 200:
+            return jsonify({'success': True, 'message': 'Image re-displayed!'})
+        else:
+            return jsonify({'error': f'ESP32 error: {response.status_code}'}), 500
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
