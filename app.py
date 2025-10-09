@@ -95,11 +95,10 @@ def rgb_to_palette_code(r, g, b):
     
     return closest_code
 
-def convert_image_to_binary(image_path, use_dithering=True):
+def convert_image_to_binary(image_path):
     """
-    STEP 2: EXACT ORIGINAL CONVERSION LOGIC
-    Convert 800x480 image to binary format with dithering
-    This is the ORIGINAL working code - unchanged
+    STEP 2: Convert 800x480 image to binary format
+    NO DITHERING - for testing
     """
     img = Image.open(image_path)
     
@@ -110,22 +109,7 @@ def convert_image_to_binary(image_path, use_dithering=True):
     if img.size != (800, 480):
         raise ValueError(f"Image must be 800x480, got {img.size}")
     
-    if use_dithering:
-        palette_data = [
-            0, 0, 0,
-            255, 255, 255,
-            255, 255, 0,
-            200, 80, 50,
-            100, 120, 180,
-            200, 200, 80
-        ]
-        
-        palette_img = Image.new('P', (1, 1))
-        palette_img.putpalette(palette_data + [0] * (256 * 3 - len(palette_data)))
-        
-        img = img.quantize(palette=palette_img, dither=Image.Dither.FLOYDSTEINBERG)
-        img = img.convert('RGB')
-    
+    # NO DITHERING - go straight to binary conversion
     binary_data = bytearray(192000)
     
     for row in range(480):
