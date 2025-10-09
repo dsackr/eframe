@@ -95,21 +95,55 @@ def rgb_to_palette_code(r, g, b):
     
     return closest_code
 
-def convert_image_to_binary(image_path):
-    """
-    STEP 2: Convert 800x480 image to binary format
-    NO DITHERING - for testing
-    """
+def convert_image_to_binary(image_path, use_dithering=True):
+    """Convert image to 800x480 binary format with crop-to-fill"""
     img = Image.open(image_path)
     
     if img.mode != 'RGB':
         img = img.convert('RGB')
     
-    # Image should already be 800x480 at this point
-    if img.size != (800, 480):
-        raise ValueError(f"Image must be 800x480, got {img.size}")
+    # Auto-rotate portrait to landscape
+    if img.height > img.width:
+        img = img.rotate(90, expand=True)
+        print(f"Rotated portrait image to landscape")
     
-    # NO DITHERING - go straight to binary conversion
+    # Downscale very large images first
+    if img.width > 2400 or img.height > 1440:
+        img.thumbnail((2400, 1440), Image.Resampling.LANCZOS)
+        print(f"Pre-scaled large image to {img.width}x{img.height}")
+    
+    # Calculate crop-to-fill dimensions
+    img_ratio = img.width / img.height
+    display_ratio = 800 / 480
+    
+    if img_ratio > display_ratio:
+        new_height = 480
+        new_width = int(480 * img_ratio)
+    else:
+        new_width = 800
+        new_height = int(800 / img_ratio)
+    
+    img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+    left = (new_width - 800) // 2
+    top = (new_height - 480) // 2
+    img = img.crop((left, top, left + 800, top + 480))
+    
+    if use_dithering:
+        palette_data = [
+            0, 0, 0,
+            255, 255, 255,
+            255, 255, 0,
+            200, 80, 50,
+            100, 120, 180,
+            200, 200, 80
+        ]
+        
+        palette_img = Image.new('P', (1, 1))
+        palette_img.putpalette(palette_data + [0] * (256 * 3 - len(palette_data)))
+        
+        img = img.quantize(palette=palette_img, dither=Image.Dither.FLOYDSTEINBERG)
+        img = img.convert('RGB')
+    
     binary_data = bytearray(192000)
     
     for row in range(480):
