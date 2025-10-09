@@ -219,16 +219,12 @@ def display():
         return jsonify({'error': 'File not found'}), 404
     
     try:
-        print(f"Converting {filename} using ORIGINAL conversion logic...")
+        binary_data = convert_image_to_binary(file)
         
-        # Use EXACT original conversion
-        binary_data = convert_image_to_binary(filepath)
-        
-        print(f"Sending {len(binary_data)} bytes to ESP32...")
         response = requests.post(
-            f'http://{ESP32_IP}/display?refresh=full',
+            f'http://{ESP32_IP}/display',
             files={'file': ('image.bin', binary_data)},
-            headers={'Connection': 'close'},
+            headers={'Connection': 'keep-alive'},
             timeout=120
         )
         
