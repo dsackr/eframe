@@ -219,7 +219,7 @@ def display():
         return jsonify({'error': 'File not found'}), 404
     
     try:
-        binary_data = convert_image_to_binary(file)
+        binary_data = convert_image_to_binary(filepath)
         
         response = requests.post(
             f'http://{ESP32_IP}/display',
