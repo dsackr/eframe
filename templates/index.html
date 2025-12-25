@@ -12,7 +12,7 @@
             <div class="d-flex align-items-center justify-content-between mb-3">
                 <div>
                     <h3 class="mb-0">E-Ink Image Controller</h3>
-                    <small class="text-muted">Upload, rotate, and send saved images to your display.</small>
+                    <small class="text-muted">Upload, flip, and send saved images to your display.</small>
                 </div>
                 <a href="/" class="btn btn-outline-secondary">Refresh</a>
             </div>
@@ -81,16 +81,9 @@
                                                 <button class="btn btn-outline-primary" type="submit">Display (Crop)</button>
                                             </form>
                                         </div>
-                                        <div class="btn-group" role="group">
-                                            <form action="/rotate/{{ file.name }}" method="POST">
-                                                <input type="hidden" name="direction" value="left">
-                                                <button class="btn btn-outline-secondary" type="submit">⟲ Rotate left</button>
-                                            </form>
-                                            <form action="/rotate/{{ file.name }}" method="POST">
-                                                <input type="hidden" name="direction" value="right">
-                                                <button class="btn btn-outline-secondary" type="submit">⟳ Rotate right</button>
-                                            </form>
-                                        </div>
+                                        <form action="/flip/{{ file.name }}" method="POST">
+                                            <button class="btn btn-outline-secondary w-100" type="submit">Flip 180°</button>
+                                        </form>
                                         <form action="/delete/{{ file.name }}" method="POST" onsubmit="return confirm('Delete this image?')">
                                             <button class="btn btn-outline-danger w-100" type="submit">Delete image</button>
                                         </form>
