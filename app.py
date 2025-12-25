@@ -160,11 +160,11 @@ def get_uploaded_files(limit: int = 24):
     return files[:limit]
 
 
-def rotate_image_file(path: Path, degrees: int) -> None:
+def flip_image_file(path: Path) -> None:
     img = Image.open(path)
     img = ImageOps.exif_transpose(img)
-    rotated = img.rotate(degrees, expand=True)
-    rotated.save(path)
+    flipped = img.rotate(180, expand=True)
+    flipped.save(path)
 
 
 # --- ROUTES ---
@@ -202,15 +202,13 @@ def display(filename):
     return redirect(url_for('index'))
 
 
-@app.route('/rotate/<filename>', methods=['POST'])
-def rotate(filename):
+@app.route('/flip/<filename>', methods=['POST'])
+def flip(filename):
     path = get_image_path(filename)
     if not path:
         abort(404)
 
-    direction = request.form.get('direction', 'right')
-    degrees = -90 if direction == 'left' else 90
-    rotate_image_file(path, degrees)
+    flip_image_file(path)
     return redirect(url_for('index'))
 
 
