@@ -19,6 +19,7 @@ UPLOAD_DIR = BASE_DIR / "uploads"
 # Display Config
 PANEL_WIDTH = 1600
 PANEL_HEIGHT = 1200
+DEFAULT_DISPLAY_ROTATION = 180
 
 # Logging
 logging.basicConfig(
@@ -113,7 +114,7 @@ def process_image_for_display(
     return img
 
 
-def display_on_epaper(img_path: str, mode: str = 'letterbox', rotation_degrees: int = 0) -> bool:
+def display_on_epaper(img_path: str, mode: str = 'letterbox', rotation_degrees: int = DEFAULT_DISPLAY_ROTATION) -> bool:
     if not os.path.exists(img_path):
         return False
     try:
@@ -197,7 +198,7 @@ def display(filename):
         abort(404)
 
     mode = request.form.get('mode', 'letterbox')
-    rotation = int(request.form.get('rotation', 0))
+    rotation = int(request.form.get('rotation', DEFAULT_DISPLAY_ROTATION))
     display_on_epaper(str(path), mode=mode, rotation_degrees=rotation)
     return redirect(url_for('index'))
 
