@@ -63,12 +63,21 @@ def get_image_path(filename: str) -> Optional[Path]:
     return path
 
 
+def get_target_size_for_image(img: Image.Image, base_size=(PANEL_WIDTH, PANEL_HEIGHT)):
+    width, height = img.size
+    base_width, base_height = base_size
+    if height > width:
+        return base_height, base_width
+    return base_width, base_height
+
+
 def process_image_for_display(
     img: Image.Image,
-    target_size=(PANEL_WIDTH, PANEL_HEIGHT),
+    base_size=(PANEL_WIDTH, PANEL_HEIGHT),
     mode: str = 'letterbox',
     rotation_degrees: int = 0,
     bg_color: str = 'white',
+    auto_orient: bool = True,
 ) -> Image.Image:
     if img.mode != 'RGB':
         img = img.convert('RGB')
@@ -77,8 +86,11 @@ def process_image_for_display(
     if rotation_degrees % 360 != 0:
         img = img.rotate(rotation_degrees, expand=True)
 
+    target_width, target_height = base_size
+    if auto_orient:
+        target_width, target_height = get_target_size_for_image(img, base_size)
+
     img_width, img_height = img.size
-    target_width, target_height = target_size
 
     if mode == 'crop':
         scale = max(target_width / img_width, target_height / img_height)
@@ -93,7 +105,7 @@ def process_image_for_display(
         new_width = int(img_width * scale)
         new_height = int(img_height * scale)
         img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-        canvas = Image.new('RGB', target_size, bg_color)
+        canvas = Image.new('RGB', (target_width, target_height), bg_color)
         x = (target_width - new_width) // 2
         y = (target_height - new_height) // 2
         canvas.paste(img, (x, y))
@@ -112,7 +124,12 @@ def display_on_epaper(img_path: str, mode: str = 'letterbox', rotation_degrees: 
         epd.Init()
 
         img = Image.open(img_path)
-        img_processed = process_image_for_display(img, (PANEL_WIDTH, PANEL_HEIGHT), mode=mode, rotation_degrees=rotation_degrees)
+        img_processed = process_image_for_display(
+            img,
+            (PANEL_WIDTH, PANEL_HEIGHT),
+            mode=mode,
+            rotation_degrees=rotation_degrees,
+        )
 
         epd.display(epd.getbuffer(img_processed))
         time.sleep(2)
