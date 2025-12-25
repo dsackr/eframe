@@ -1,52 +1,106 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Safety Tracker</title>
+    <title>E-Ink Image Controller</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body class="bg-light">
 <div class="container py-4">
     <div class="row justify-content-center">
-        <div class="col-md-8">
+        <div class="col-lg-10">
+            <div class="d-flex align-items-center justify-content-between mb-3">
+                <div>
+                    <h3 class="mb-0">E-Ink Image Controller</h3>
+                    <small class="text-muted">Upload, rotate, and send saved images to your display.</small>
+                </div>
+                <a href="/" class="btn btn-outline-secondary">Refresh</a>
+            </div>
+
             <div class="card shadow-sm mb-4">
-                <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
-                    <h4 class="m-0">Safety Sign Control</h4>
-                    <span class="badge bg-light text-dark">{{ data.days_since }} Days Free</span>
+                <div class="card-header bg-primary text-white">
+                    <strong>Upload a new image</strong>
                 </div>
                 <div class="card-body">
-                    <form action="/update" method="POST">
-                        <div class="mb-3">
-                            <label class="form-label">Last Incident Date</label>
-                            <input type="date" name="incident_date" class="form-control" value="{{ data.incident_date }}" required>
-                            <small class="text-muted">Changing this will update the "Days Since" counter.</small>
+                    <form action="/upload" method="POST" enctype="multipart/form-data" class="row gy-3">
+                        <div class="col-12">
+                            <label class="form-label">Select file</label>
+                            <input type="file" name="file" class="form-control" required>
                         </div>
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label">Incident Number</label>
-                                <input type="text" name="incident_number" class="form-control" value="{{ data.incident_number }}">
+                        <div class="col-md-6">
+                            <label class="form-label d-block">Display mode</label>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="mode" id="modeLetterbox" value="letterbox" checked>
+                                <label class="form-check-label" for="modeLetterbox">Letterbox (fit inside)</label>
                             </div>
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label">Reason</label>
-                                <select name="reason" class="form-select">
-                                    <option value="Change" {% if data.reason == 'Change' %}selected{% endif %}>Change</option>
-                                    <option value="Deploy" {% if data.reason == 'Deploy' %}selected{% endif %}>Deploy</option>
-                                    <option value="Missed" {% if data.reason == 'Missed' %}selected{% endif %}>Missed Process</option>
-                                </select>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="mode" id="modeCrop" value="crop">
+                                <label class="form-check-label" for="modeCrop">Crop (fill screen)</label>
                             </div>
                         </div>
-                        <div class="d-grid gap-2">
-                            <button type="submit" class="btn btn-primary btn-lg">Update & Push to Sign</button>
+                        <div class="col-md-6 d-flex align-items-center">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="display_immediately" id="displayCheck" checked>
+                                <label class="form-check-label" for="displayCheck">Send to screen immediately</label>
+                            </div>
+                        </div>
+                        <div class="col-12">
+                            <button type="submit" class="btn btn-success">Upload</button>
                         </div>
                     </form>
                 </div>
             </div>
 
-            <div class="d-flex justify-content-between">
-                <a href="/upload_image" class="btn btn-outline-secondary">Upload Custom Image</a>
-                <form action="/force_refresh" method="POST" style="display:inline;">
-                    <button type="submit" class="btn btn-outline-danger">Force Refresh Display</button>
-                </form>
+            <div class="card shadow-sm">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <strong>Saved images</strong>
+                    <span class="text-muted small">Most recent first</span>
+                </div>
+                <div class="card-body">
+                    {% if files %}
+                    <div class="row g-3">
+                        {% for file in files %}
+                        <div class="col-12 col-md-6 col-lg-4">
+                            <div class="card h-100">
+                                <img src="/preview/{{ file.name }}" class="card-img-top" style="height: 200px; object-fit: cover;">
+                                <div class="card-body">
+                                    <div class="d-flex justify-content-between align-items-start mb-2">
+                                        <div>
+                                            <h6 class="mb-0 text-truncate" title="{{ file.name }}">{{ file.name }}</h6>
+                                            <small class="text-muted">{{ file.uploaded.strftime('%Y-%m-%d %H:%M') }} • {{ file.size_kb }} KB</small>
+                                        </div>
+                                    </div>
+                                    <div class="d-grid gap-2">
+                                        <div class="btn-group" role="group">
+                                            <form action="/display/{{ file.name }}" method="POST">
+                                                <input type="hidden" name="mode" value="letterbox">
+                                                <button class="btn btn-outline-primary" type="submit">Display (Letterbox)</button>
+                                            </form>
+                                            <form action="/display/{{ file.name }}" method="POST">
+                                                <input type="hidden" name="mode" value="crop">
+                                                <button class="btn btn-outline-primary" type="submit">Display (Crop)</button>
+                                            </form>
+                                        </div>
+                                        <div class="btn-group" role="group">
+                                            <form action="/rotate/{{ file.name }}" method="POST">
+                                                <input type="hidden" name="direction" value="left">
+                                                <button class="btn btn-outline-secondary" type="submit">⟲ Rotate left</button>
+                                            </form>
+                                            <form action="/rotate/{{ file.name }}" method="POST">
+                                                <input type="hidden" name="direction" value="right">
+                                                <button class="btn btn-outline-secondary" type="submit">⟳ Rotate right</button>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                        <p class="text-muted mb-0">No images uploaded yet. Use the form above to add one.</p>
+                    {% endif %}
+                </div>
             </div>
         </div>
     </div>
