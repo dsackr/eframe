@@ -91,6 +91,9 @@
                                                 <button class="btn btn-outline-secondary" type="submit">⟳ Rotate right</button>
                                             </form>
                                         </div>
+                                        <form action="/delete/{{ file.name }}" method="POST" onsubmit="return confirm('Delete this image?')">
+                                            <button class="btn btn-outline-danger w-100" type="submit">Delete image</button>
+                                        </form>
                                     </div>
                                 </div>
                             </div>
