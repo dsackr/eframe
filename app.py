@@ -222,6 +222,21 @@ def preview(filename):
     return send_from_directory(str(UPLOAD_DIR), path.name)
 
 
+@app.route('/delete/<filename>', methods=['POST'])
+def delete(filename):
+    path = get_image_path(filename)
+    if not path:
+        abort(404)
+
+    try:
+        path.unlink()
+    except OSError as exc:
+        logger.error(f"Failed to delete {path}: {exc}")
+        abort(500)
+
+    return redirect(url_for('index'))
+
+
 @app.route('/upload_image')
 def upload_page():
     return redirect(url_for('index'))
