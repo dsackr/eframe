@@ -1,0 +1,5 @@
+flask
+Pillow
+schedule
+RPi.GPIO
+spidev

@@ -1,0 +1,16 @@
+[Unit]
+Description=E-Paper Display Service
+After=network.target
+
+[Service]
+User=dsackrider
+WorkingDirectory=/home/dsackrider/eframe
+ExecStart=/usr/bin/python3 /home/dsackrider/eframe/app.py
+Restart=always
+RestartSec=10
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=eframe
+
+[Install]
+WantedBy=multi-user.target

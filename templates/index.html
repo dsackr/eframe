@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Safety Tracker</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+<div class="container py-4">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                    <h4 class="m-0">Safety Sign Control</h4>
+                    <span class="badge bg-light text-dark">{{ data.days_since }} Days Free</span>
+                </div>
+                <div class="card-body">
+                    <form action="/update" method="POST">
+                        <div class="mb-3">
+                            <label class="form-label">Last Incident Date</label>
+                            <input type="date" name="incident_date" class="form-control" value="{{ data.incident_date }}" required>
+                            <small class="text-muted">Changing this will update the "Days Since" counter.</small>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Incident Number</label>
+                                <input type="text" name="incident_number" class="form-control" value="{{ data.incident_number }}">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Reason</label>
+                                <select name="reason" class="form-select">
+                                    <option value="Change" {% if data.reason == 'Change' %}selected{% endif %}>Change</option>
+                                    <option value="Deploy" {% if data.reason == 'Deploy' %}selected{% endif %}>Deploy</option>
+                                    <option value="Missed" {% if data.reason == 'Missed' %}selected{% endif %}>Missed Process</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-primary btn-lg">Update & Push to Sign</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <div class="d-flex justify-content-between">
+                <a href="/upload_image" class="btn btn-outline-secondary">Upload Custom Image</a>
+                <form action="/force_refresh" method="POST" style="display:inline;">
+                    <button type="submit" class="btn btn-outline-danger">Force Refresh Display</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+</body>
+</html>

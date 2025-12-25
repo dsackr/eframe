@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Upload Image</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+<div class="container py-4">
+    <a href="/" class="btn btn-link mb-3">&larr; Back to Dashboard</a>
+    
+    <div class="card shadow-sm mb-4">
+        <div class="card-header">Upload New Image</div>
+        <div class="card-body">
+            <form action="/upload" method="POST" enctype="multipart/form-data">
+                <div class="mb-3">
+                    <input type="file" name="file" class="form-control" required>
+                </div>
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="checkbox" name="display_immediately" id="displayCheck" checked>
+                    <label class="form-check-label" for="displayCheck">Send to screen immediately</label>
+                </div>
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" name="crop_mode" id="cropCheck">
+                    <label class="form-check-label" for="cropCheck">Crop to fill (zoom)</label>
+                </div>
+                <button type="submit" class="btn btn-success">Upload</button>
+            </form>
+        </div>
+    </div>
+
+    <h5>Recent Uploads</h5>
+    <div class="row g-3">
+        {% for file in files %}
+        <div class="col-6 col-md-3">
+            <div class="card h-100">
+                <img src="/preview/{{ file }}" class="card-img-top" style="height: 150px; object-fit: cover;">
+                <div class="card-body p-2 text-center">
+                    <small class="text-truncate d-block">{{ file }}</small>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+</body>
+</html>
