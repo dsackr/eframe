@@ -2,12 +2,15 @@
 import logging
 import os
 import signal
+import socket
 import sys
 import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
-from flask import Flask, abort, redirect, render_template, request, send_from_directory, url_for
+
+from flask import Flask, abort, jsonify, redirect, render_template, request, send_from_directory, url_for
 from PIL import Image, ImageOps
 from werkzeug.utils import secure_filename
 
@@ -37,6 +40,54 @@ app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'}
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+# --- FRAIMIC COMPATIBILITY ---
+# Spectra 6 palette — maps nibble values (0-5) back to RGB
+# Used to decode .bin files sent by fraimic-controller
+SPECTRA6_RGB = [
+    (0,   0,   0),    # 0: Black
+    (255, 255, 255),  # 1: White
+    (0,   255, 0),    # 2: Green
+    (0,   0,   255),  # 3: Blue
+    (255, 0,   0),    # 4: Red
+    (255, 255, 0),    # 5: Yellow
+]
+
+# Stable device ID derived from hostname (survives reboots, looks like a real frame)
+DEVICE_ID = str(uuid.uuid5(uuid.NAMESPACE_DNS, socket.gethostname()))
+
+# Track the last displayed file so /api/refresh can replay it
+_last_displayed: Optional[str] = None
+
+
+def get_local_ip() -> str:
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))
+        return s.getsockname()[0]
+    except Exception:
+        return "127.0.0.1"
+    finally:
+        s.close()
+
+
+def bin_to_image(bin_data: bytes, width: int = PANEL_WIDTH, height: int = PANEL_HEIGHT) -> Image.Image:
+    """
+    Decode a Fraimic .bin file back to a PIL RGB image.
+
+    .bin format: raw 4bpp, no header
+      - high nibble = left pixel color index (0-5)
+      - low  nibble = right pixel color index (0-5)
+    """
+    pixels = []
+    for byte in bin_data:
+        hi = (byte >> 4) & 0xF
+        lo = byte & 0xF
+        pixels.append(SPECTRA6_RGB[min(hi, 5)])
+        pixels.append(SPECTRA6_RGB[min(lo, 5)])
+    img = Image.new('RGB', (width, height))
+    img.putdata(pixels)
+    return img
 
 
 # --- UTILITIES ---
@@ -115,6 +166,7 @@ def process_image_for_display(
 
 
 def display_on_epaper(img_path: str, mode: str = 'letterbox', rotation_degrees: int = DEFAULT_DISPLAY_ROTATION) -> bool:
+    global _last_displayed
     if not os.path.exists(img_path):
         return False
     try:
@@ -135,9 +187,11 @@ def display_on_epaper(img_path: str, mode: str = 'letterbox', rotation_degrees: 
         epd.display(epd.getbuffer(img_processed))
         time.sleep(2)
         epd.sleep()
+        _last_displayed = img_path
         return True
     except ImportError:
         logger.warning("EPD driver not found (Dev Mode)")
+        _last_displayed = img_path
         return False
     except Exception as e:
         logger.error(f"EPD Error: {e}")
@@ -170,7 +224,6 @@ def flip_image_file(path: Path) -> None:
 
 # --- ROUTES ---
 
-
 @app.route('/')
 def index():
     files = get_uploaded_files()
@@ -179,6 +232,28 @@ def index():
 
 @app.route('/upload', methods=['POST'])
 def upload():
+    # ── Fraimic-compatible path ──────────────────────────────────────────────
+    # fraimic-controller sends field name 'image' with a .bin file.
+    fraimic_file = request.files.get('image')
+    if fraimic_file and fraimic_file.filename.lower().endswith('.bin'):
+        bin_data = fraimic_file.read()
+        expected = PANEL_WIDTH * PANEL_HEIGHT // 2  # 960,000 bytes for 1600×1200
+
+        if len(bin_data) != expected:
+            logger.warning(f"Fraimic upload: unexpected size {len(bin_data)} (expected {expected})")
+            return jsonify({'error': f'unexpected size {len(bin_data)}, expected {expected}'}), 400
+
+        img = bin_to_image(bin_data)
+        fname = f"fraimic_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+        path = UPLOAD_DIR / fname
+        img.save(path)
+
+        # Display with the panel's default rotation; image is already 1600×1200
+        # so mode doesn't matter — use crop to avoid any re-scaling artefacts
+        display_on_epaper(str(path), mode='crop', rotation_degrees=DEFAULT_DISPLAY_ROTATION)
+        return jsonify({'ok': True}), 200
+
+    # ── Original web UI path ─────────────────────────────────────────────────
     f = request.files.get('file')
     if f and allowed_file(f.filename):
         fname = secure_filename(f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{f.filename}")
@@ -239,6 +314,34 @@ def delete(filename):
 @app.route('/upload_image')
 def upload_page():
     return redirect(url_for('index'))
+
+
+# --- FRAIMIC-COMPATIBLE API ENDPOINTS ---
+# These make eframe look like a standard Fraimic frame on the local network.
+# fraimic-controller discovers frames via GET /api/info and pushes images via POST /upload.
+
+@app.route('/api/info', methods=['GET'])
+def api_info():
+    """Return device status in Fraimic frame format."""
+    return jsonify({
+        'device_id':       DEVICE_ID,
+        'battery_pct':     100,          # Pi is always plugged in
+        'firmware_version': 'eframe-1.0.0',
+        'ip_address':      get_local_ip(),
+        'wifi_ssid':       '',
+        'display_type':    'spectra6_13in3',
+        'width':           PANEL_WIDTH,
+        'height':          PANEL_HEIGHT,
+    })
+
+
+@app.route('/api/refresh', methods=['POST'])
+def api_refresh():
+    """Re-display the last image — mirrors the Fraimic frame refresh endpoint."""
+    if _last_displayed and os.path.exists(_last_displayed):
+        display_on_epaper(_last_displayed, mode='crop', rotation_degrees=DEFAULT_DISPLAY_ROTATION)
+        return jsonify({'status': 'refresh_started'}), 200
+    return jsonify({'error': 'no image to refresh'}), 404
 
 
 if __name__ == '__main__':
