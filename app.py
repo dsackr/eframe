@@ -7,7 +7,6 @@ import subprocess
 import sys
 import threading
 import time
-import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -61,11 +60,18 @@ FRAIMIC_CODE_TO_RGB = {
     0x6: (0,   255, 0),    # Green
 }
 
-# Stable device ID derived from hostname (survives reboots, looks like a real frame)
-DEVICE_ID = str(uuid.uuid5(uuid.NAMESPACE_DNS, socket.gethostname()))
+# Real frame limit per the Fraimic REST API guide ("file exceeds 1 MB")
+MAX_FRAIMIC_IMAGE_BYTES = 1_000_000
+
+START_TIME = time.monotonic()
 
 # Track the last displayed file so /api/refresh can replay it
 _last_displayed: Optional[str] = None
+_last_refresh_at: Optional[datetime] = None
+
+# Held while a Fraimic .bin is being decoded/pushed to the panel, so a
+# concurrent upload gets "buffer_not_ready" instead of racing the display.
+_display_lock = threading.Lock()
 
 
 def get_local_ip() -> str:
@@ -211,7 +217,7 @@ def process_image_for_display(
 
 
 def display_on_epaper(img_path: str, mode: str = 'letterbox', rotation_degrees: int = DEFAULT_DISPLAY_ROTATION) -> bool:
-    global _last_displayed
+    global _last_displayed, _last_refresh_at
     if not os.path.exists(img_path):
         return False
     try:
@@ -233,10 +239,12 @@ def display_on_epaper(img_path: str, mode: str = 'letterbox', rotation_degrees: 
         time.sleep(2)
         epd.sleep()
         _last_displayed = img_path
+        _last_refresh_at = datetime.now()
         return True
     except ImportError:
         logger.warning("EPD driver not found (Dev Mode)")
         _last_displayed = img_path
+        _last_refresh_at = datetime.now()
         return False
     except Exception as e:
         logger.error(f"EPD Error: {e}")
@@ -267,13 +275,8 @@ def flip_image_file(path: Path) -> None:
     flipped.save(path)
 
 
-def save_and_display_fraimic_bin(bin_data: bytes):
+def decode_and_display_fraimic_bin(bin_data: bytes) -> None:
     """Decode a Fraimic .bin payload, save it, and push it to the panel."""
-    expected = FRAIMIC_WIDTH * FRAIMIC_HEIGHT // 2  # 960,000 bytes for 1200×1600
-    if len(bin_data) != expected:
-        logger.warning(f"Fraimic upload: unexpected size {len(bin_data)} (expected {expected})")
-        return jsonify({'error': f'unexpected size {len(bin_data)}, expected {expected}'}), 400
-
     img = bin_to_image(bin_data)
     fname = f"fraimic_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
     path = UPLOAD_DIR / fname
@@ -282,7 +285,18 @@ def save_and_display_fraimic_bin(bin_data: bytes):
     # Image is already panel-sized, so mode doesn't matter — use crop to
     # avoid any re-scaling artefacts.
     display_on_epaper(str(path), mode='crop', rotation_degrees=DEFAULT_DISPLAY_ROTATION)
-    return jsonify({'ok': True}), 200
+
+
+def get_battery_status() -> dict:
+    # eframe runs on mains power, not a battery — these are fixed values
+    # rather than a real fuel-gauge/ADC reading.
+    return {
+        'percent': 100,
+        'voltage_mv': None,
+        'charging': True,
+        'cable_connected': True,
+        'source': 'mains',
+    }
 
 
 # --- ROUTES ---
@@ -299,7 +313,14 @@ def upload():
     # fraimic-controller sends field name 'image' with a .bin file.
     fraimic_file = request.files.get('image')
     if fraimic_file and fraimic_file.filename.lower().endswith('.bin'):
-        return save_and_display_fraimic_bin(fraimic_file.read())
+        bin_data = fraimic_file.read()
+        expected = FRAIMIC_WIDTH * FRAIMIC_HEIGHT // 2  # 960,000 bytes for 1200×1600
+        if len(bin_data) != expected:
+            logger.warning(f"Fraimic upload: unexpected size {len(bin_data)} (expected {expected})")
+            return jsonify({'error': f'unexpected size {len(bin_data)}, expected {expected}'}), 400
+
+        decode_and_display_fraimic_bin(bin_data)
+        return jsonify({'ok': True}), 200
 
     # ── Original web UI path ─────────────────────────────────────────────────
     f = request.files.get('file')
@@ -374,21 +395,35 @@ def upload_page():
 def api_info():
     """Return device status in the real Fraimic frame's JSON shape."""
     return jsonify({
-        'device_id':        DEVICE_ID,
         'firmware_version': 'eframe-1.0.0',
-        'display_type':     'spectra6_13in3',
-        'width':            PANEL_WIDTH,
-        'height':           PANEL_HEIGHT,
-        'battery': {
-            'percent':  100,   # Pi is always plugged in
-            'charging': True,
-        },
         'wifi': {
-            'ip':   get_local_ip(),
-            'ssid': get_wifi_ssid(),
-            'rssi': get_wifi_rssi(),
+            'connected': True,
+            'ssid':      get_wifi_ssid(),
+            'rssi':      get_wifi_rssi(),
+            'channel':   None,   # not exposed by the OS in a portable way
+            'ip':        get_local_ip(),
+        },
+        'battery': get_battery_status(),
+        'device': {
+            'registered':  False,  # not paired to a Fraimic cloud account
+            'time_synced': True,
+            'uptime_s':    int(time.monotonic() - START_TIME),
+        },
+        'settings': {
+            'voice_recording': False,  # no microphone hardware
+            'keep_awake':      True,   # /api/sleep is a no-op, so effectively always awake
+        },
+        'display': {
+            'last_refresh': _last_refresh_at.isoformat() if _last_refresh_at else None,
+            'next_refresh': None,  # eframe doesn't schedule refreshes
         },
     })
+
+
+@app.route('/api/battery', methods=['GET'])
+def api_battery():
+    """Lightweight battery-only status, mirroring the Fraimic frame endpoint."""
+    return jsonify(get_battery_status())
 
 
 @app.route('/api/refresh', methods=['POST'])
@@ -403,7 +438,29 @@ def api_refresh():
 @app.route('/api/image', methods=['POST'])
 def api_image():
     """Upload a Fraimic .bin as a raw binary body (application/octet-stream)."""
-    return save_and_display_fraimic_bin(request.get_data())
+    if not _display_lock.acquire(blocking=False):
+        return jsonify({'error': 'buffer_not_ready'}), 503
+
+    try:
+        if request.mimetype and request.mimetype != 'application/octet-stream':
+            return jsonify({'error': 'unsupported_content_type'}), 501
+
+        if request.content_length is not None and request.content_length > MAX_FRAIMIC_IMAGE_BYTES:
+            return jsonify({'error': 'file_too_large'}), 400
+
+        bin_data = request.get_data()
+        if len(bin_data) > MAX_FRAIMIC_IMAGE_BYTES:
+            return jsonify({'error': 'file_too_large'}), 400
+
+        expected = FRAIMIC_WIDTH * FRAIMIC_HEIGHT // 2  # 960,000 bytes for 1200×1600
+        if len(bin_data) != expected:
+            logger.warning(f"Fraimic /api/image: unexpected size {len(bin_data)} (expected {expected})")
+            return jsonify({'error': 'invalid_image_size'}), 400
+
+        decode_and_display_fraimic_bin(bin_data)
+        return jsonify({'status': 'rendering', 'bytes_received': len(bin_data)}), 200
+    finally:
+        _display_lock.release()
 
 
 @app.route('/api/restart', methods=['POST'])
@@ -421,8 +478,8 @@ def api_restart():
 @app.route('/api/sleep', methods=['POST'])
 def api_sleep():
     """No-op: eframe runs on mains power, so there's no real sleep state
-    to enter. Accepted for API parity with the real frame."""
-    return jsonify({'status': 'ok'}), 200
+    to enter. Always reports success for API parity with the real frame."""
+    return jsonify({'status': 'sleeping'}), 200
 
 
 if __name__ == '__main__':
