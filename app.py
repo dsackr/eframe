@@ -3,7 +3,9 @@ import logging
 import os
 import signal
 import socket
+import subprocess
 import sys
+import threading
 import time
 import uuid
 from datetime import datetime
@@ -75,6 +77,28 @@ def get_local_ip() -> str:
         return "127.0.0.1"
     finally:
         s.close()
+
+
+def get_wifi_ssid() -> str:
+    try:
+        result = subprocess.run(['iwgetid', '-r'], capture_output=True, text=True, timeout=2)
+        return result.stdout.strip()
+    except Exception:
+        return ''
+
+
+def get_wifi_rssi() -> Optional[int]:
+    # /proc/net/wireless columns: face status link level noise ...
+    try:
+        with open('/proc/net/wireless') as f:
+            lines = f.readlines()[2:]
+        for line in lines:
+            parts = line.split()
+            if len(parts) >= 4:
+                return int(float(parts[3]))
+    except Exception:
+        pass
+    return None
 
 
 def bin_to_image(bin_data: bytes, width: int = FRAIMIC_WIDTH, height: int = FRAIMIC_HEIGHT) -> Image.Image:
@@ -243,6 +267,24 @@ def flip_image_file(path: Path) -> None:
     flipped.save(path)
 
 
+def save_and_display_fraimic_bin(bin_data: bytes):
+    """Decode a Fraimic .bin payload, save it, and push it to the panel."""
+    expected = FRAIMIC_WIDTH * FRAIMIC_HEIGHT // 2  # 960,000 bytes for 1200×1600
+    if len(bin_data) != expected:
+        logger.warning(f"Fraimic upload: unexpected size {len(bin_data)} (expected {expected})")
+        return jsonify({'error': f'unexpected size {len(bin_data)}, expected {expected}'}), 400
+
+    img = bin_to_image(bin_data)
+    fname = f"fraimic_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+    path = UPLOAD_DIR / fname
+    img.save(path)
+
+    # Image is already panel-sized, so mode doesn't matter — use crop to
+    # avoid any re-scaling artefacts.
+    display_on_epaper(str(path), mode='crop', rotation_degrees=DEFAULT_DISPLAY_ROTATION)
+    return jsonify({'ok': True}), 200
+
+
 # --- ROUTES ---
 
 @app.route('/')
@@ -257,22 +299,7 @@ def upload():
     # fraimic-controller sends field name 'image' with a .bin file.
     fraimic_file = request.files.get('image')
     if fraimic_file and fraimic_file.filename.lower().endswith('.bin'):
-        bin_data = fraimic_file.read()
-        expected = FRAIMIC_WIDTH * FRAIMIC_HEIGHT // 2  # 960,000 bytes for 1200×1600
-
-        if len(bin_data) != expected:
-            logger.warning(f"Fraimic upload: unexpected size {len(bin_data)} (expected {expected})")
-            return jsonify({'error': f'unexpected size {len(bin_data)}, expected {expected}'}), 400
-
-        img = bin_to_image(bin_data)
-        fname = f"fraimic_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
-        path = UPLOAD_DIR / fname
-        img.save(path)
-
-        # Display with the panel's default rotation; image is already 1600×1200
-        # so mode doesn't matter — use crop to avoid any re-scaling artefacts
-        display_on_epaper(str(path), mode='crop', rotation_degrees=DEFAULT_DISPLAY_ROTATION)
-        return jsonify({'ok': True}), 200
+        return save_and_display_fraimic_bin(fraimic_file.read())
 
     # ── Original web UI path ─────────────────────────────────────────────────
     f = request.files.get('file')
@@ -338,21 +365,29 @@ def upload_page():
 
 
 # --- FRAIMIC-COMPATIBLE API ENDPOINTS ---
-# These make eframe look like a standard Fraimic frame on the local network.
-# fraimic-controller discovers frames via GET /api/info and pushes images via POST /upload.
+# These mirror the real Fraimic frame's REST API (see
+# github.com/Fraimic/Fraimic_eink_canvas_home_assistant_restAPI_guide) so
+# tools built for a real frame — Home Assistant, fraimic-controller — work
+# unmodified against eframe.
 
 @app.route('/api/info', methods=['GET'])
 def api_info():
-    """Return device status in Fraimic frame format."""
+    """Return device status in the real Fraimic frame's JSON shape."""
     return jsonify({
-        'device_id':       DEVICE_ID,
-        'battery_pct':     100,          # Pi is always plugged in
+        'device_id':        DEVICE_ID,
         'firmware_version': 'eframe-1.0.0',
-        'ip_address':      get_local_ip(),
-        'wifi_ssid':       '',
-        'display_type':    'spectra6_13in3',
-        'width':           PANEL_WIDTH,
-        'height':          PANEL_HEIGHT,
+        'display_type':     'spectra6_13in3',
+        'width':            PANEL_WIDTH,
+        'height':           PANEL_HEIGHT,
+        'battery': {
+            'percent':  100,   # Pi is always plugged in
+            'charging': True,
+        },
+        'wifi': {
+            'ip':   get_local_ip(),
+            'ssid': get_wifi_ssid(),
+            'rssi': get_wifi_rssi(),
+        },
     })
 
 
@@ -363,6 +398,31 @@ def api_refresh():
         display_on_epaper(_last_displayed, mode='crop', rotation_degrees=DEFAULT_DISPLAY_ROTATION)
         return jsonify({'status': 'refresh_started'}), 200
     return jsonify({'error': 'no image to refresh'}), 404
+
+
+@app.route('/api/image', methods=['POST'])
+def api_image():
+    """Upload a Fraimic .bin as a raw binary body (application/octet-stream)."""
+    return save_and_display_fraimic_bin(request.get_data())
+
+
+@app.route('/api/restart', methods=['POST'])
+def api_restart():
+    """Restart the eframe service. eframe.service has Restart=always, so
+    exiting the process is enough to bring it back up."""
+    def _restart():
+        time.sleep(0.5)
+        os._exit(0)
+
+    threading.Thread(target=_restart, daemon=True).start()
+    return jsonify({'status': 'restarting'}), 200
+
+
+@app.route('/api/sleep', methods=['POST'])
+def api_sleep():
+    """No-op: eframe runs on mains power, so there's no real sleep state
+    to enter. Accepted for API parity with the real frame."""
+    return jsonify({'status': 'ok'}), 200
 
 
 if __name__ == '__main__':
