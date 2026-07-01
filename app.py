@@ -141,6 +141,24 @@ def bin_to_image(bin_data: bytes, width: int = FRAIMIC_WIDTH, height: int = FRAI
     return img
 
 
+def bin_to_image_flat(bin_data: bytes, width: int = FRAIMIC_WIDTH, height: int = FRAIMIC_HEIGHT) -> Image.Image:
+    """
+    DIAGNOSTIC: decode assuming plain flat row-major packing — "each byte
+    holds two pixels, high nibble first" with no left/right half split, per
+    the plain-English format description in the Fraimic REST API guide.
+    Used to determine whether Home Assistant's real .bin uploads use this
+    layout instead of fraimic_bin_converter's half-split layout.
+    """
+    pixels = [(0, 0, 0)] * (width * height)
+    for i, byte in enumerate(bin_data):
+        pixels[i * 2] = FRAIMIC_CODE_TO_RGB.get(byte >> 4, (0, 0, 0))
+        pixels[i * 2 + 1] = FRAIMIC_CODE_TO_RGB.get(byte & 0xF, (0, 0, 0))
+
+    img = Image.new('RGB', (width, height))
+    img.putdata(pixels)
+    return img
+
+
 # --- UTILITIES ---
 
 def signal_handler(sig, frame):
@@ -276,11 +294,27 @@ def flip_image_file(path: Path) -> None:
 
 
 def decode_and_display_fraimic_bin(bin_data: bytes) -> None:
-    """Decode a Fraimic .bin payload, save it, and push it to the panel."""
-    img = bin_to_image(bin_data)
-    fname = f"fraimic_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+    """Decode a Fraimic .bin payload, save it, and push it to the panel.
+
+    TEMPORARY DIAGNOSTIC: the real byte layout Home Assistant's uploads use
+    hasn't been confirmed yet, so this also saves the raw .bin plus every
+    other plausible decode (alternate layout, swapped dimensions) as
+    "fraimic_debug_*" files. Compare those against the primary "fraimic_*"
+    image in the gallery, then this can be trimmed back down to whichever
+    one decode path actually matches.
+    """
+    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+
+    (UPLOAD_DIR / f"fraimic_debug_raw_{ts}.bin").write_bytes(bin_data)
+    bin_to_image_flat(bin_data).save(UPLOAD_DIR / f"fraimic_debug_flat_{ts}.png")
+    bin_to_image(bin_data, width=PANEL_WIDTH, height=PANEL_HEIGHT).save(
+        UPLOAD_DIR / f"fraimic_debug_split_swapped_{ts}.png")
+    bin_to_image_flat(bin_data, width=PANEL_WIDTH, height=PANEL_HEIGHT).save(
+        UPLOAD_DIR / f"fraimic_debug_flat_swapped_{ts}.png")
+
+    fname = f"fraimic_{ts}.png"
     path = UPLOAD_DIR / fname
-    img.save(path)
+    bin_to_image(bin_data).save(path)
 
     # Image is already panel-sized, so mode doesn't matter — use crop to
     # avoid any re-scaling artefacts.
