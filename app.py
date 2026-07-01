@@ -43,17 +43,21 @@ ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'}
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # --- FRAIMIC COMPATIBILITY ---
-# Byte layout mirrors fraimic_bin_converter's convert_to_bin_spectra6.py
-# (github.com/Fraimic/fraimic_bin_converter): 4-bit device codes (0x4
-# intentionally unused), two pixels per byte. Each row's left half and
-# right half are packed separately — all left-half bytes for every row
-# come first, then all right-half bytes.
+# Byte layout and dimensions match the fraimic-homeassistant integration's
+# image_converter.py (github.com/dsackr/fraimic-homeassistant): 4-bit device
+# codes (0x4 intentionally unused), two pixels per byte. Each row's left
+# half and right half are packed separately — all left-half bytes for every
+# row come first, then all right-half bytes.
 #
-# Dimensions are 1600x1200 (PANEL_WIDTH x PANEL_HEIGHT) landscape —
-# confirmed against real Home Assistant uploads. This diverges from both
-# the Fraimic REST API guide's stated "1200x1600" and fraimic_bin_converter's
-# own 1200x1600 portrait default; whatever actually generates Home
-# Assistant's .bin files targets the panel's landscape orientation instead.
+# 1200x1600 portrait matches FRAME_RESOLUTIONS["13.3"] in that integration's
+# const.py, and the physical panel's native orientation (see EPD_WIDTH/
+# EPD_HEIGHT in lib/epd13in3E.py). eframe's own /api/info intentionally
+# doesn't report width/height (matching real frames), so the frame's
+# Fraimic device entry in Home Assistant must be set up picking "13.3" at
+# the resolution prompt — otherwise the integration falls back to whatever
+# was captured previously and these dimensions will be wrong.
+FRAIMIC_WIDTH = 1200
+FRAIMIC_HEIGHT = 1600
 FRAIMIC_CODE_TO_RGB = {
     0x0: (0,   0,   0),    # Black
     0x1: (255, 255, 255),  # White
@@ -114,7 +118,7 @@ def get_wifi_rssi() -> Optional[int]:
     return None
 
 
-def bin_to_image(bin_data: bytes, width: int = PANEL_WIDTH, height: int = PANEL_HEIGHT) -> Image.Image:
+def bin_to_image(bin_data: bytes, width: int = FRAIMIC_WIDTH, height: int = FRAIMIC_HEIGHT) -> Image.Image:
     """
     Decode a Fraimic .bin file back to a PIL RGB image.
 
@@ -345,7 +349,7 @@ def upload():
     fraimic_file = request.files.get('image')
     if fraimic_file and fraimic_file.filename.lower().endswith('.bin'):
         bin_data = fraimic_file.read()
-        expected = PANEL_WIDTH * PANEL_HEIGHT // 2  # 960,000 bytes for 1600×1200
+        expected = FRAIMIC_WIDTH * FRAIMIC_HEIGHT // 2  # 960,000 bytes for 1200×1600
         if len(bin_data) != expected:
             logger.warning(f"Fraimic upload: unexpected size {len(bin_data)} (expected {expected})")
             return jsonify({'error': f'unexpected size {len(bin_data)}, expected {expected}'}), 400
@@ -486,7 +490,7 @@ def api_image():
         if len(bin_data) > MAX_FRAIMIC_IMAGE_BYTES:
             return jsonify({'error': 'file_too_large'}), 400
 
-        expected = PANEL_WIDTH * PANEL_HEIGHT // 2  # 960,000 bytes for 1600×1200
+        expected = FRAIMIC_WIDTH * FRAIMIC_HEIGHT // 2  # 960,000 bytes for 1200×1600
         if len(bin_data) != expected:
             logger.warning(f"Fraimic /api/image: unexpected size {len(bin_data)} (expected {expected})")
             return jsonify({'error': 'invalid_image_size'}), 400
