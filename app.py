@@ -43,14 +43,17 @@ ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'}
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # --- FRAIMIC COMPATIBILITY ---
-# Mirrors the packing format produced by fraimic_bin_converter's
-# convert_to_bin_spectra6.py (github.com/Fraimic/fraimic_bin_converter):
-# 1200x1600 portrait, 4-bit device codes (0x4 intentionally unused), two
-# pixels per byte. Each row's left half (cols 0-599) and right half
-# (cols 600-1199) are packed separately — all left-half bytes for every
-# row come first, then all right-half bytes.
-FRAIMIC_WIDTH = 1200
-FRAIMIC_HEIGHT = 1600
+# Byte layout mirrors fraimic_bin_converter's convert_to_bin_spectra6.py
+# (github.com/Fraimic/fraimic_bin_converter): 4-bit device codes (0x4
+# intentionally unused), two pixels per byte. Each row's left half and
+# right half are packed separately — all left-half bytes for every row
+# come first, then all right-half bytes.
+#
+# Dimensions are 1600x1200 (PANEL_WIDTH x PANEL_HEIGHT) landscape —
+# confirmed against real Home Assistant uploads. This diverges from both
+# the Fraimic REST API guide's stated "1200x1600" and fraimic_bin_converter's
+# own 1200x1600 portrait default; whatever actually generates Home
+# Assistant's .bin files targets the panel's landscape orientation instead.
 FRAIMIC_CODE_TO_RGB = {
     0x0: (0,   0,   0),    # Black
     0x1: (255, 255, 255),  # White
@@ -107,7 +110,7 @@ def get_wifi_rssi() -> Optional[int]:
     return None
 
 
-def bin_to_image(bin_data: bytes, width: int = FRAIMIC_WIDTH, height: int = FRAIMIC_HEIGHT) -> Image.Image:
+def bin_to_image(bin_data: bytes, width: int = PANEL_WIDTH, height: int = PANEL_HEIGHT) -> Image.Image:
     """
     Decode a Fraimic .bin file back to a PIL RGB image.
 
@@ -135,24 +138,6 @@ def bin_to_image(bin_data: bytes, width: int = FRAIMIC_WIDTH, height: int = FRAI
             pixels[row_offset + col + 1] = FRAIMIC_CODE_TO_RGB.get(left_byte & 0xF, (0, 0, 0))
             pixels[row_offset + half_width + col] = FRAIMIC_CODE_TO_RGB.get(right_byte >> 4, (0, 0, 0))
             pixels[row_offset + half_width + col + 1] = FRAIMIC_CODE_TO_RGB.get(right_byte & 0xF, (0, 0, 0))
-
-    img = Image.new('RGB', (width, height))
-    img.putdata(pixels)
-    return img
-
-
-def bin_to_image_flat(bin_data: bytes, width: int = FRAIMIC_WIDTH, height: int = FRAIMIC_HEIGHT) -> Image.Image:
-    """
-    DIAGNOSTIC: decode assuming plain flat row-major packing — "each byte
-    holds two pixels, high nibble first" with no left/right half split, per
-    the plain-English format description in the Fraimic REST API guide.
-    Used to determine whether Home Assistant's real .bin uploads use this
-    layout instead of fraimic_bin_converter's half-split layout.
-    """
-    pixels = [(0, 0, 0)] * (width * height)
-    for i, byte in enumerate(bin_data):
-        pixels[i * 2] = FRAIMIC_CODE_TO_RGB.get(byte >> 4, (0, 0, 0))
-        pixels[i * 2 + 1] = FRAIMIC_CODE_TO_RGB.get(byte & 0xF, (0, 0, 0))
 
     img = Image.new('RGB', (width, height))
     img.putdata(pixels)
@@ -294,27 +279,11 @@ def flip_image_file(path: Path) -> None:
 
 
 def decode_and_display_fraimic_bin(bin_data: bytes) -> None:
-    """Decode a Fraimic .bin payload, save it, and push it to the panel.
-
-    TEMPORARY DIAGNOSTIC: the real byte layout Home Assistant's uploads use
-    hasn't been confirmed yet, so this also saves the raw .bin plus every
-    other plausible decode (alternate layout, swapped dimensions) as
-    "fraimic_debug_*" files. Compare those against the primary "fraimic_*"
-    image in the gallery, then this can be trimmed back down to whichever
-    one decode path actually matches.
-    """
-    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-
-    (UPLOAD_DIR / f"fraimic_debug_raw_{ts}.bin").write_bytes(bin_data)
-    bin_to_image_flat(bin_data).save(UPLOAD_DIR / f"fraimic_debug_flat_{ts}.png")
-    bin_to_image(bin_data, width=PANEL_WIDTH, height=PANEL_HEIGHT).save(
-        UPLOAD_DIR / f"fraimic_debug_split_swapped_{ts}.png")
-    bin_to_image_flat(bin_data, width=PANEL_WIDTH, height=PANEL_HEIGHT).save(
-        UPLOAD_DIR / f"fraimic_debug_flat_swapped_{ts}.png")
-
-    fname = f"fraimic_{ts}.png"
+    """Decode a Fraimic .bin payload, save it, and push it to the panel."""
+    img = bin_to_image(bin_data)
+    fname = f"fraimic_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
     path = UPLOAD_DIR / fname
-    bin_to_image(bin_data).save(path)
+    img.save(path)
 
     # Image is already panel-sized, so mode doesn't matter — use crop to
     # avoid any re-scaling artefacts.
@@ -348,7 +317,7 @@ def upload():
     fraimic_file = request.files.get('image')
     if fraimic_file and fraimic_file.filename.lower().endswith('.bin'):
         bin_data = fraimic_file.read()
-        expected = FRAIMIC_WIDTH * FRAIMIC_HEIGHT // 2  # 960,000 bytes for 1200×1600
+        expected = PANEL_WIDTH * PANEL_HEIGHT // 2  # 960,000 bytes for 1600×1200
         if len(bin_data) != expected:
             logger.warning(f"Fraimic upload: unexpected size {len(bin_data)} (expected {expected})")
             return jsonify({'error': f'unexpected size {len(bin_data)}, expected {expected}'}), 400
@@ -486,7 +455,7 @@ def api_image():
         if len(bin_data) > MAX_FRAIMIC_IMAGE_BYTES:
             return jsonify({'error': 'file_too_large'}), 400
 
-        expected = FRAIMIC_WIDTH * FRAIMIC_HEIGHT // 2  # 960,000 bytes for 1200×1600
+        expected = PANEL_WIDTH * PANEL_HEIGHT // 2  # 960,000 bytes for 1600×1200
         if len(bin_data) != expected:
             logger.warning(f"Fraimic /api/image: unexpected size {len(bin_data)} (expected {expected})")
             return jsonify({'error': 'invalid_image_size'}), 400
