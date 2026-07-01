@@ -68,8 +68,12 @@ MAX_FRAIMIC_IMAGE_BYTES = 1_000_000
 
 START_TIME = time.monotonic()
 
-# Track the last displayed file so /api/refresh can replay it
-_last_displayed: Optional[str] = None
+# Track whatever was most recently displayed so /api/refresh can replay it.
+# Fraimic pushes are kept in memory only (Home Assistant already stores the
+# source image, so eframe doesn't need its own copy on disk).
+_last_displayed: Optional[str] = None       # file path, for gallery-sourced displays
+_last_fraimic_bin: Optional[bytes] = None   # raw .bin bytes, for Fraimic-sourced displays
+_last_display_source: Optional[str] = None  # 'path' or 'fraimic' — whichever is most recent
 _last_refresh_at: Optional[datetime] = None
 
 # Held while a Fraimic .bin is being decoded/pushed to the panel, so a
@@ -219,18 +223,22 @@ def process_image_for_display(
     return img
 
 
-def display_on_epaper(img_path: str, mode: str = 'letterbox', rotation_degrees: int = DEFAULT_DISPLAY_ROTATION) -> bool:
-    global _last_displayed, _last_refresh_at
-    if not os.path.exists(img_path):
-        return False
+def render_to_epaper(img: Image.Image, mode: str = 'letterbox', rotation_degrees: int = DEFAULT_DISPLAY_ROTATION) -> bool:
+    """Push a PIL image to the e-paper panel.
+
+    Returns True on real success or when the driver is simply absent (dev
+    mode) — both count as "displayed" for /api/refresh's purposes — and
+    False only on a genuine hardware/runtime error, which shouldn't be
+    replayed as if it were the current image.
+    """
+    global _last_refresh_at
     try:
         import epd13in3E
 
-        logger.info(f"Displaying {img_path} ({mode}, {rotation_degrees} deg)")
+        logger.info(f"Displaying image ({mode}, {rotation_degrees} deg)")
         epd = epd13in3E.EPD()
         epd.Init()
 
-        img = Image.open(img_path)
         img_processed = process_image_for_display(
             img,
             (PANEL_WIDTH, PANEL_HEIGHT),
@@ -241,17 +249,37 @@ def display_on_epaper(img_path: str, mode: str = 'letterbox', rotation_degrees: 
         epd.display(epd.getbuffer(img_processed))
         time.sleep(2)
         epd.sleep()
-        _last_displayed = img_path
         _last_refresh_at = datetime.now()
         return True
     except ImportError:
         logger.warning("EPD driver not found (Dev Mode)")
-        _last_displayed = img_path
         _last_refresh_at = datetime.now()
-        return False
+        return True
     except Exception as e:
         logger.error(f"EPD Error: {e}")
         return False
+
+
+def display_on_epaper(img_path: str, mode: str = 'letterbox', rotation_degrees: int = DEFAULT_DISPLAY_ROTATION) -> bool:
+    global _last_displayed, _last_display_source
+    if not os.path.exists(img_path):
+        return False
+    ok = render_to_epaper(Image.open(img_path), mode=mode, rotation_degrees=rotation_degrees)
+    if ok:
+        _last_displayed = img_path
+        _last_display_source = 'path'
+    return ok
+
+
+def display_fraimic_bin_on_epaper(bin_data: bytes, mode: str = 'crop', rotation_degrees: int = DEFAULT_DISPLAY_ROTATION) -> bool:
+    """Decode a Fraimic .bin and push it straight to the panel — no copy
+    is written to disk, since Home Assistant already holds the source."""
+    global _last_fraimic_bin, _last_display_source
+    ok = render_to_epaper(bin_to_image(bin_data), mode=mode, rotation_degrees=rotation_degrees)
+    if ok:
+        _last_fraimic_bin = bin_data
+        _last_display_source = 'fraimic'
+    return ok
 
 
 def get_uploaded_files(limit: int = 24):
@@ -279,15 +307,15 @@ def flip_image_file(path: Path) -> None:
 
 
 def decode_and_display_fraimic_bin(bin_data: bytes) -> None:
-    """Decode a Fraimic .bin payload, save it, and push it to the panel."""
-    img = bin_to_image(bin_data)
-    fname = f"fraimic_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
-    path = UPLOAD_DIR / fname
-    img.save(path)
+    """Decode a Fraimic .bin payload and push it straight to the panel.
 
+    No copy is saved to uploads/ — Home Assistant (or whatever sent the
+    .bin) already holds the source image, so persisting another copy here
+    would just accumulate a duplicate on every re-send.
+    """
     # Image is already panel-sized, so mode doesn't matter — use crop to
     # avoid any re-scaling artefacts.
-    display_on_epaper(str(path), mode='crop', rotation_degrees=DEFAULT_DISPLAY_ROTATION)
+    display_fraimic_bin_on_epaper(bin_data, mode='crop', rotation_degrees=DEFAULT_DISPLAY_ROTATION)
 
 
 def get_battery_status() -> dict:
@@ -432,7 +460,10 @@ def api_battery():
 @app.route('/api/refresh', methods=['POST'])
 def api_refresh():
     """Re-display the last image — mirrors the Fraimic frame refresh endpoint."""
-    if _last_displayed and os.path.exists(_last_displayed):
+    if _last_display_source == 'fraimic' and _last_fraimic_bin:
+        display_fraimic_bin_on_epaper(_last_fraimic_bin, mode='crop', rotation_degrees=DEFAULT_DISPLAY_ROTATION)
+        return jsonify({'status': 'refresh_started'}), 200
+    if _last_display_source == 'path' and _last_displayed and os.path.exists(_last_displayed):
         display_on_epaper(_last_displayed, mode='crop', rotation_degrees=DEFAULT_DISPLAY_ROTATION)
         return jsonify({'status': 'refresh_started'}), 200
     return jsonify({'error': 'no image to refresh'}), 404
