@@ -42,16 +42,22 @@ ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'}
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # --- FRAIMIC COMPATIBILITY ---
-# Spectra 6 palette — maps nibble values (0-5) back to RGB
-# Used to decode .bin files sent by fraimic-controller
-SPECTRA6_RGB = [
-    (0,   0,   0),    # 0: Black
-    (255, 255, 255),  # 1: White
-    (0,   255, 0),    # 2: Green
-    (0,   0,   255),  # 3: Blue
-    (255, 0,   0),    # 4: Red
-    (255, 255, 0),    # 5: Yellow
-]
+# Mirrors the packing format produced by fraimic_bin_converter's
+# convert_to_bin_spectra6.py (github.com/Fraimic/fraimic_bin_converter):
+# 1200x1600 portrait, 4-bit device codes (0x4 intentionally unused), two
+# pixels per byte. Each row's left half (cols 0-599) and right half
+# (cols 600-1199) are packed separately — all left-half bytes for every
+# row come first, then all right-half bytes.
+FRAIMIC_WIDTH = 1200
+FRAIMIC_HEIGHT = 1600
+FRAIMIC_CODE_TO_RGB = {
+    0x0: (0,   0,   0),    # Black
+    0x1: (255, 255, 255),  # White
+    0x2: (255, 255, 0),    # Yellow
+    0x3: (255, 0,   0),    # Red
+    0x5: (0,   0,   255),  # Blue
+    0x6: (0,   255, 0),    # Green
+}
 
 # Stable device ID derived from hostname (survives reboots, looks like a real frame)
 DEVICE_ID = str(uuid.uuid5(uuid.NAMESPACE_DNS, socket.gethostname()))
@@ -71,20 +77,35 @@ def get_local_ip() -> str:
         s.close()
 
 
-def bin_to_image(bin_data: bytes, width: int = PANEL_WIDTH, height: int = PANEL_HEIGHT) -> Image.Image:
+def bin_to_image(bin_data: bytes, width: int = FRAIMIC_WIDTH, height: int = FRAIMIC_HEIGHT) -> Image.Image:
     """
     Decode a Fraimic .bin file back to a PIL RGB image.
 
-    .bin format: raw 4bpp, no header
-      - high nibble = left pixel color index (0-5)
-      - low  nibble = right pixel color index (0-5)
+    Inverse of fraimic_bin_converter's generate_binary_file(): each row is
+    split into a packed left half (cols 0..width/2-1) and packed right half
+    (cols width/2..width-1), with all left halves (row-major) coming before
+    all right halves.
     """
-    pixels = []
-    for byte in bin_data:
-        hi = (byte >> 4) & 0xF
-        lo = byte & 0xF
-        pixels.append(SPECTRA6_RGB[min(hi, 5)])
-        pixels.append(SPECTRA6_RGB[min(lo, 5)])
+    half_width = width // 2
+    bytes_per_half_row = half_width // 2
+    half_size = bytes_per_half_row * height
+
+    left_bytes = bin_data[:half_size]
+    right_bytes = bin_data[half_size:half_size * 2]
+
+    pixels = [(0, 0, 0)] * (width * height)
+    for row in range(height):
+        row_offset = row * width
+        half_row_offset = row * bytes_per_half_row
+        for col_byte in range(bytes_per_half_row):
+            left_byte = left_bytes[half_row_offset + col_byte]
+            right_byte = right_bytes[half_row_offset + col_byte]
+            col = col_byte * 2
+            pixels[row_offset + col] = FRAIMIC_CODE_TO_RGB.get(left_byte >> 4, (0, 0, 0))
+            pixels[row_offset + col + 1] = FRAIMIC_CODE_TO_RGB.get(left_byte & 0xF, (0, 0, 0))
+            pixels[row_offset + half_width + col] = FRAIMIC_CODE_TO_RGB.get(right_byte >> 4, (0, 0, 0))
+            pixels[row_offset + half_width + col + 1] = FRAIMIC_CODE_TO_RGB.get(right_byte & 0xF, (0, 0, 0))
+
     img = Image.new('RGB', (width, height))
     img.putdata(pixels)
     return img
@@ -237,7 +258,7 @@ def upload():
     fraimic_file = request.files.get('image')
     if fraimic_file and fraimic_file.filename.lower().endswith('.bin'):
         bin_data = fraimic_file.read()
-        expected = PANEL_WIDTH * PANEL_HEIGHT // 2  # 960,000 bytes for 1600×1200
+        expected = FRAIMIC_WIDTH * FRAIMIC_HEIGHT // 2  # 960,000 bytes for 1200×1600
 
         if len(bin_data) != expected:
             logger.warning(f"Fraimic upload: unexpected size {len(bin_data)} (expected {expected})")
