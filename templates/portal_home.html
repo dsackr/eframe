@@ -1,8 +1,8 @@
 {% extends "portal_base.html" %}
-{% block title %}eframe Portal{% endblock %}
+{% block title %}Fraimic Clone{% endblock %}
 {% block content %}
 <div class="card">
-    <h1>eframe Portal</h1>
+    <h1>Fraimic Clone</h1>
     <div class="status-bar">
         <span>WiFi:
             {% if wifi_connected %}<span class="status-connected">Connected</span>{% else %}<span>Not connected</span>{% endif %}
@@ -22,15 +22,15 @@
             <p class="tile-title">Upload</p>
             <p class="tile-desc">Upload .bin files to display custom artwork</p>
         </a>
-        <a class="tile" href="{{ url_for('portal_get_started') }}">
+        <a class="tile" href="https://ha.dalesackrider.com/config/integrations/integration/fraimic" target="_blank" rel="noopener">
             <div class="icon-badge">+</div>
             <p class="tile-title">Device Setup</p>
-            <p class="tile-desc">Set up a new eframe with a new or existing account</p>
+            <p class="tile-desc">Configure this device in the Fraimic integration</p>
         </a>
-        <a class="tile" href="https://app.fraimic.com" target="_blank" rel="noopener">
+        <a class="tile" href="https://ha.dalesackrider.com/fraimic" target="_blank" rel="noopener">
             <div class="icon-badge">&#128100;</div>
-            <p class="tile-title">Fraimic Dashboard</p>
-            <p class="tile-desc">Sign in to your Fraimic account</p>
+            <p class="tile-title">Home Assistant Dashboard</p>
+            <p class="tile-desc">Open the Fraimic dashboard in Home Assistant</p>
         </a>
     </div>
 
