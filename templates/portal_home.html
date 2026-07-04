@@ -1,0 +1,42 @@
+{% extends "portal_base.html" %}
+{% block title %}eframe Portal{% endblock %}
+{% block content %}
+<div class="card">
+    <h1>eframe Portal</h1>
+    <div class="status-bar">
+        <span>WiFi:
+            {% if wifi_connected %}<span class="status-connected">Connected</span>{% else %}<span>Not connected</span>{% endif %}
+        </span>
+        <span>Mode: Normal</span>
+        <span>&#9889; Power: Mains ({{ battery.percent }}%)</span>
+    </div>
+
+    <div class="tile-grid">
+        <a class="tile" href="{{ url_for('portal_wifi') }}">
+            <div class="icon-badge">&#128225;</div>
+            <p class="tile-title">WiFi</p>
+            <p class="tile-desc">Configure network connection settings</p>
+        </a>
+        <a class="tile" href="{{ url_for('portal_upload') }}">
+            <div class="icon-badge">&#8593;</div>
+            <p class="tile-title">Upload</p>
+            <p class="tile-desc">Upload .bin files to display custom artwork</p>
+        </a>
+        <a class="tile" href="{{ url_for('portal_get_started') }}">
+            <div class="icon-badge">+</div>
+            <p class="tile-title">Device Setup</p>
+            <p class="tile-desc">Set up a new eframe with a new or existing account</p>
+        </a>
+        <a class="tile" href="https://app.fraimic.com" target="_blank" rel="noopener">
+            <div class="icon-badge">&#128100;</div>
+            <p class="tile-title">Fraimic Dashboard</p>
+            <p class="tile-desc">Sign in to your Fraimic account</p>
+        </a>
+    </div>
+
+    <div class="footer">
+        eframe &bull; {{ firmware_version }} &bull; <a href="{{ url_for('portal_info') }}">Device Information</a>
+        &bull; <a href="{{ url_for('portal_logs') }}">Logs</a>
+    </div>
+</div>
+{% endblock %}

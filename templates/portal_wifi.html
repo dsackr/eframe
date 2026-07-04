@@ -1,0 +1,40 @@
+{% extends "portal_base.html" %}
+{% block title %}Set Up WiFi{% endblock %}
+{% block content %}
+<div class="card">
+    <div class="icon-badge">&#128225;</div>
+    <h1>Set Up WiFi</h1>
+    <p class="subtitle">{{ networks|length }} network{{ 's' if networks|length != 1 else '' }} found nearby</p>
+
+    {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+    {% if success %}<div class="alert alert-success">{{ success }}</div>{% endif %}
+
+    <form method="POST" action="{{ url_for('portal_wifi') }}">
+        <label>Network Name (SSID)</label>
+        <select name="ssid" id="ssidSelect">
+            <option value="">Select your WiFi network</option>
+            {% for net in networks %}
+            <option value="{{ net }}">{{ net }}</option>
+            {% endfor %}
+        </select>
+        <div class="center" style="margin-top:8px;">
+            <a class="link" href="#" onclick="document.getElementById('manualRow').style.display='block'; return false;">Enter network name manually</a>
+        </div>
+        <div id="manualRow" style="display:{{ 'block' if not networks else 'none' }};">
+            <label>Manual Network Name</label>
+            <input type="text" name="manual_ssid" placeholder="Enter network name manually">
+        </div>
+
+        <label>WiFi Password</label>
+        <div class="input-with-icon">
+            <input type="password" name="password" id="wifiPassword" placeholder="Enter WiFi password">
+            <button type="button" class="toggle" onclick="const f=document.getElementById('wifiPassword'); f.type = f.type==='password' ? 'text' : 'password';">&#128065;</button>
+        </div>
+
+        <button type="submit" class="btn">Save Credentials</button>
+    </form>
+
+    <p class="hint">Make sure your device is within range of your WiFi router</p>
+    <p class="center"><a class="link" href="{{ url_for('portal_home') }}">Portal</a></p>
+</div>
+{% endblock %}

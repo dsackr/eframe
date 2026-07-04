@@ -1,0 +1,49 @@
+{% extends "portal_base.html" %}
+{% block title %}Logs{% endblock %}
+{% block content %}
+<style>
+    .log-window {
+        background: #1b1e24;
+        border-radius: 12px;
+        padding: 12px;
+        height: 360px;
+        overflow-y: auto;
+        font-family: "SFMono-Regular", Consolas, Menlo, monospace;
+        font-size: 11px;
+        line-height: 1.5;
+        color: #d8dae0;
+    }
+    .log-line { white-space: pre-wrap; word-break: break-word; margin-bottom: 2px; }
+    .log-ERROR { color: #ff6b6b; }
+    .log-WARNING { color: #f2b656; }
+    .log-INFO { color: #d8dae0; }
+    .log-DEBUG { color: #7d828c; }
+    .log-actions { display: flex; gap: 8px; margin-top: 12px; }
+    .log-actions .btn { margin-top: 0; }
+</style>
+<div class="card">
+    <h1>Logs</h1>
+    <p class="subtitle">Most recent {{ entries|length }} entr{{ 'y' if entries|length == 1 else 'ies' }}</p>
+
+    <div class="log-window" id="logWindow">
+        {% for e in entries %}
+        <div class="log-line log-{{ e.level }}">{{ e.time.strftime('%H:%M:%S') }} {{ e.level[0] }} {{ e.logger }}: {{ e.message }}</div>
+        {% else %}
+        <div class="log-line">No log entries yet.</div>
+        {% endfor %}
+    </div>
+
+    <div class="log-actions">
+        <button type="button" class="btn btn-secondary" onclick="location.reload()">Refresh</button>
+        <form method="POST" action="{{ url_for('portal_logs_clear') }}" style="flex:1;">
+            <button type="submit" class="btn btn-secondary" style="width:100%;">Clear</button>
+        </form>
+    </div>
+
+    <p class="center" style="margin-top:18px;"><a class="link" href="{{ url_for('portal_home') }}">Portal</a></p>
+</div>
+<script>
+    var w = document.getElementById('logWindow');
+    if (w) { w.scrollTop = w.scrollHeight; }
+</script>
+{% endblock %}

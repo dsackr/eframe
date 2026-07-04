@@ -1,0 +1,67 @@
+{% extends "portal_base.html" %}
+{% block title %}Device Information{% endblock %}
+{% block content %}
+<div class="card">
+    <h1>Information</h1>
+
+    <div class="section">
+        <div class="section-title">Device</div>
+        <div class="row"><span class="label">Device Type</span><span class="value">{{ device_type }}</span></div>
+        <div class="row"><span class="label">MAC Address</span><span class="value">{{ mac }}</span></div>
+        <div class="row"><span class="label">Device Key</span><span class="value">...{{ device_key[-8:] }}</span></div>
+        <div class="row"><span class="label">Firmware Version</span><span class="value">{{ firmware_version }}</span></div>
+    </div>
+
+    <div class="section">
+        <div class="section-title">Account</div>
+        <div class="row"><span class="label">Registration</span><span class="value"><span class="pill pill-muted">Not registered</span></span></div>
+    </div>
+
+    <div class="section">
+        <div class="section-title">Power</div>
+        <div class="row"><span class="label">Source</span><span class="value">{{ battery.source|capitalize }}</span></div>
+        <div class="row"><span class="label">Percentage</span><span class="value">{{ battery.percent }}%</span></div>
+        <div class="row"><span class="label">Status</span><span class="value"><span class="pill pill-success">{{ 'Charging' if battery.charging else 'Not Charging' }}</span></span></div>
+    </div>
+
+    <div class="section">
+        <div class="section-title">Network</div>
+        <div class="row"><span class="label">Status</span><span class="value">
+            {% if wifi_connected %}<span class="pill pill-success">Connected</span>{% else %}<span class="pill pill-muted">Disconnected</span>{% endif %}
+        </span></div>
+        <div class="row"><span class="label">WiFi</span><span class="value">{{ wifi_ssid or '—' }}</span></div>
+        <div class="row"><span class="label">IP Address</span><span class="value">{{ wifi_ip }}</span></div>
+        <div class="row"><span class="label">Signal (RSSI)</span><span class="value">{{ (wifi_rssi ~ ' dBm') if wifi_rssi is not none else '—' }}</span></div>
+    </div>
+
+    <div class="section">
+        <div class="section-title">Display</div>
+        <div class="row"><span class="label">Resolution</span><span class="value">{{ width_px }} &times; {{ height_px }}</span></div>
+        <div class="row"><span class="label">Orientation</span><span class="value">{{ orientation|capitalize }}</span></div>
+        <div class="row"><span class="label">Last Refresh</span><span class="value">{{ last_refresh.strftime('%b %d, %I:%M %p') if last_refresh else 'Never' }}</span></div>
+
+        <form method="POST" action="{{ url_for('portal_set_orientation') }}" style="margin-top:12px;">
+            <label style="margin-top:0;">Set Orientation</label>
+            <select name="orientation">
+                <option value="portrait" {{ 'selected' if orientation == 'portrait' }}>Portrait (1200 &times; 1600)</option>
+                <option value="landscape" {{ 'selected' if orientation == 'landscape' }}>Landscape (1600 &times; 1200)</option>
+            </select>
+            <button type="submit" class="btn btn-secondary">Save Orientation</button>
+        </form>
+    </div>
+
+    <div class="section">
+        <div class="section-title">Server</div>
+        <div class="row"><span class="label">Voice Recording</span><span class="value"><span class="pill pill-muted">Disabled</span></span></div>
+        <div class="row"><span class="label">Keep Awake</span><span class="value"><span class="pill pill-success">Enabled</span></span></div>
+    </div>
+
+    <div class="section">
+        <div class="section-title">System</div>
+        <div class="row"><span class="label">Current Time</span><span class="value">{{ now.strftime('%b %d, %I:%M:%S %p') }}</span></div>
+        <div class="row"><span class="label">Time Sync</span><span class="value"><span class="pill pill-success">Synced</span></span></div>
+    </div>
+
+    <p class="center" style="margin-top:18px;"><a class="link" href="{{ url_for('portal_home') }}">Portal</a></p>
+</div>
+{% endblock %}

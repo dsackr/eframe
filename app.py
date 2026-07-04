@@ -37,6 +37,22 @@ logger = logging.getLogger(__name__)
 if LIB_DIR.exists():
     sys.path.append(str(LIB_DIR))
 
+from lib import device_config, log_buffer, mdns_advertise, wifi_control  # noqa: E402
+
+# Mirror the same log lines going to stdout into an in-memory ring buffer,
+# so the /portal/logs page has something real to show.
+log_buffer.install(logging.getLogger())
+
+# Persistent per-device settings (device_key, orientation) - see
+# lib/device_config.py for why these exist.
+DEVICE_CONFIG_PATH = BASE_DIR / "device_config.json"
+device_config.init(DEVICE_CONFIG_PATH)
+
+# Matches the physical panel driven by lib/epd13in3E.py (EPD_WIDTH=1200,
+# EPD_HEIGHT=1600) and the "13.3\" E-Ink" Device Type shown on a real
+# frame's /info admin page.
+DEVICE_TYPE = '13.3" E-Ink'
+
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'}
@@ -51,11 +67,11 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 #
 # 1200x1600 portrait matches FRAME_RESOLUTIONS["13.3"] in that integration's
 # const.py, and the physical panel's native orientation (see EPD_WIDTH/
-# EPD_HEIGHT in lib/epd13in3E.py). eframe's own /api/info intentionally
-# doesn't report width/height (matching real frames), so the frame's
-# Fraimic device entry in Home Assistant must be set up picking "13.3" at
-# the resolution prompt — otherwise the integration falls back to whatever
-# was captured previously and these dimensions will be wrong.
+# EPD_HEIGHT in lib/epd13in3E.py). Unlike a real frame, eframe's /api/info
+# *does* report the effective width/height/orientation (see
+# get_effective_display_dims() below) - ahead of the real frame, which
+# still requires picking "13.3" manually in the Home Assistant integration
+# (see FRAIMIC_WIDTH/FRAIMIC_HEIGHT as the underlying native/default size).
 FRAIMIC_WIDTH = 1200
 FRAIMIC_HEIGHT = 1600
 FRAIMIC_CODE_TO_RGB = {
@@ -118,6 +134,29 @@ def get_wifi_rssi() -> Optional[int]:
     return None
 
 
+def get_mac_address(iface: str = 'wlan0') -> str:
+    try:
+        with open(f'/sys/class/net/{iface}/address') as f:
+            return f.read().strip().upper()
+    except OSError:
+        return '00:00:00:00:00:00'
+
+
+def get_effective_display_dims():
+    """Return (width_px, height_px, orientation) reflecting the current
+    orientation setting (see lib/device_config.py) rather than assuming
+    the panel's native portrait shape.
+
+    Added for https://github.com/Fraimic/Fraimic_eink_canvas_home_assistant_restAPI_guide/issues/2
+    and /issues/3 - integrations shouldn't have to hardcode a guess about
+    a frame's resolution or orientation.
+    """
+    orientation = device_config.get().get('orientation', 'portrait')
+    if orientation == 'landscape':
+        return FRAIMIC_HEIGHT, FRAIMIC_WIDTH, 'landscape'
+    return FRAIMIC_WIDTH, FRAIMIC_HEIGHT, 'portrait'
+
+
 def bin_to_image(bin_data: bytes, width: int = FRAIMIC_WIDTH, height: int = FRAIMIC_HEIGHT) -> Image.Image:
     """
     Decode a Fraimic .bin file back to a PIL RGB image.
@@ -156,6 +195,7 @@ def bin_to_image(bin_data: bytes, width: int = FRAIMIC_WIDTH, height: int = FRAI
 
 def signal_handler(sig, frame):
     logger.info('Shutting down display app...')
+    mdns_advertise.stop()
     sys.exit(0)
 
 
@@ -279,7 +319,8 @@ def display_fraimic_bin_on_epaper(bin_data: bytes, mode: str = 'crop', rotation_
     """Decode a Fraimic .bin and push it straight to the panel — no copy
     is written to disk, since Home Assistant already holds the source."""
     global _last_fraimic_bin, _last_display_source
-    ok = render_to_epaper(bin_to_image(bin_data), mode=mode, rotation_degrees=rotation_degrees)
+    width, height, _ = get_effective_display_dims()
+    ok = render_to_epaper(bin_to_image(bin_data, width, height), mode=mode, rotation_degrees=rotation_degrees)
     if ok:
         _last_fraimic_bin = bin_data
         _last_display_source = 'fraimic'
@@ -349,7 +390,8 @@ def upload():
     fraimic_file = request.files.get('image')
     if fraimic_file and fraimic_file.filename.lower().endswith('.bin'):
         bin_data = fraimic_file.read()
-        expected = FRAIMIC_WIDTH * FRAIMIC_HEIGHT // 2  # 960,000 bytes for 1200×1600
+        width, height, _ = get_effective_display_dims()
+        expected = width * height // 2  # 960,000 bytes for 1200×1600
         if len(bin_data) != expected:
             logger.warning(f"Fraimic upload: unexpected size {len(bin_data)} (expected {expected})")
             return jsonify({'error': f'unexpected size {len(bin_data)}, expected {expected}'}), 400
@@ -428,7 +470,16 @@ def upload_page():
 
 @app.route('/api/info', methods=['GET'])
 def api_info():
-    """Return device status in the real Fraimic frame's JSON shape."""
+    """Return device status in the real Fraimic frame's JSON shape.
+
+    `display.width_px`/`height_px`/`orientation` and `device.device_key`
+    are ahead of what a real frame currently reports - see
+    https://github.com/Fraimic/Fraimic_eink_canvas_home_assistant_restAPI_guide/issues/2
+    and /issues/3, which this app deliberately mimics early so integrations
+    built against eframe don't have to hardcode a per-panel guess.
+    """
+    cfg = device_config.get()
+    width_px, height_px, orientation = get_effective_display_dims()
     return jsonify({
         'firmware_version': 'eframe-1.0.0',
         'wifi': {
@@ -440,19 +491,42 @@ def api_info():
         },
         'battery': get_battery_status(),
         'device': {
-            'registered':  False,  # not paired to a Fraimic cloud account
-            'time_synced': True,
-            'uptime_s':    int(time.monotonic() - START_TIME),
+            'registered':      False,  # not paired to a Fraimic cloud account
+            'account_created': False,
+            'device_key':      cfg.get('device_key'),
+            'time_synced':     True,
+            'local_time':      datetime.now().isoformat(),
+            'uptime_s':        int(time.monotonic() - START_TIME),
         },
         'settings': {
             'voice_recording': False,  # no microphone hardware
             'keep_awake':      True,   # /api/sleep is a no-op, so effectively always awake
         },
         'display': {
-            'last_refresh': _last_refresh_at.isoformat() if _last_refresh_at else None,
-            'next_refresh': None,  # eframe doesn't schedule refreshes
+            'device_type':   DEVICE_TYPE,
+            'width_px':       width_px,
+            'height_px':      height_px,
+            'orientation':    orientation,
+            'last_refresh':   _last_refresh_at.isoformat() if _last_refresh_at else None,
+            'next_refresh':   None,  # eframe doesn't schedule refreshes
         },
     })
+
+
+@app.route('/api/settings', methods=['GET', 'POST'])
+def api_settings():
+    """Read or update user-settable device settings. Currently just
+    `orientation` (see issue #3 linked above) - the effective displayed
+    orientation, independent of the panel's native/mounted shape."""
+    if request.method == 'POST':
+        payload = request.get_json(silent=True) or request.form
+        orientation = (payload.get('orientation') or '').strip().lower()
+        if orientation not in ('portrait', 'landscape'):
+            return jsonify({'error': 'invalid_orientation', 'allowed': ['portrait', 'landscape']}), 400
+        device_config.update(orientation=orientation)
+        return jsonify({'status': 'ok', 'orientation': orientation}), 200
+
+    return jsonify({'orientation': device_config.get().get('orientation', 'portrait')}), 200
 
 
 @app.route('/api/battery', methods=['GET'])
@@ -490,7 +564,8 @@ def api_image():
         if len(bin_data) > MAX_FRAIMIC_IMAGE_BYTES:
             return jsonify({'error': 'file_too_large'}), 400
 
-        expected = FRAIMIC_WIDTH * FRAIMIC_HEIGHT // 2  # 960,000 bytes for 1200×1600
+        width, height, _ = get_effective_display_dims()
+        expected = width * height // 2  # 960,000 bytes for 1200×1600
         if len(bin_data) != expected:
             logger.warning(f"Fraimic /api/image: unexpected size {len(bin_data)} (expected {expected})")
             return jsonify({'error': 'invalid_image_size'}), 400
@@ -520,5 +595,116 @@ def api_sleep():
     return jsonify({'status': 'sleeping'}), 200
 
 
+# --- PORTAL (mimics the real Fraimic frame's on-device setup UI) ---------
+# Routed under /portal/... (rather than reusing e.g. /upload, /wifi) since
+# those top-level paths are already taken by eframe's own gallery UI above.
+# Visually this mirrors http://<a real frame>/portal and its sub-pages;
+# "Get Started" / "Fraimic Dashboard" are inert placeholders since eframe
+# has no real Fraimic cloud account to set up or sign into.
+
+@app.route('/portal')
+def portal_home():
+    return render_template(
+        'portal_home.html',
+        wifi_connected=bool(get_wifi_ssid()),
+        battery=get_battery_status(),
+        firmware_version='eframe-1.0.0',
+    )
+
+
+@app.route('/portal/wifi', methods=['GET', 'POST'])
+def portal_wifi():
+    error = None
+    success = None
+    if request.method == 'POST':
+        ssid = (request.form.get('ssid') or request.form.get('manual_ssid') or '').strip()
+        password = request.form.get('password') or ''
+        if not ssid:
+            error = 'Choose or enter a network name.'
+        elif wifi_control.save_credentials(ssid, password):
+            success = f'Saved credentials for "{ssid}". The device will reconnect using them.'
+        else:
+            error = 'Could not save WiFi credentials. Check the logs for details.'
+
+    return render_template(
+        'portal_wifi.html',
+        networks=wifi_control.scan_networks(),
+        error=error,
+        success=success,
+    )
+
+
+@app.route('/portal/upload', methods=['GET', 'POST'])
+def portal_upload():
+    error = None
+    success = None
+    if request.method == 'POST':
+        f = request.files.get('file')
+        if not f or not f.filename.lower().endswith('.bin'):
+            error = 'Choose a .bin file to upload.'
+        else:
+            bin_data = f.read()
+            width, height, _ = get_effective_display_dims()
+            expected = width * height // 2
+            if len(bin_data) > MAX_FRAIMIC_IMAGE_BYTES:
+                error = 'File exceeds the 1 MB limit.'
+            elif len(bin_data) != expected:
+                error = f'Unexpected file size ({len(bin_data)} bytes; expected {expected}).'
+            else:
+                decode_and_display_fraimic_bin(bin_data)
+                success = 'Image uploaded and sent to the display.'
+
+    return render_template('portal_upload.html', error=error, success=success)
+
+
+@app.route('/portal/get-started')
+def portal_get_started():
+    return render_template('portal_get_started.html')
+
+
+@app.route('/portal/info')
+def portal_info():
+    cfg = device_config.get()
+    width_px, height_px, orientation = get_effective_display_dims()
+    return render_template(
+        'portal_info.html',
+        device_type=DEVICE_TYPE,
+        mac=get_mac_address(),
+        device_key=cfg.get('device_key', ''),
+        firmware_version='eframe-1.0.0',
+        orientation=orientation,
+        width_px=width_px,
+        height_px=height_px,
+        battery=get_battery_status(),
+        wifi_connected=bool(get_wifi_ssid()),
+        wifi_ssid=get_wifi_ssid(),
+        wifi_ip=get_local_ip(),
+        wifi_rssi=get_wifi_rssi(),
+        last_refresh=_last_refresh_at,
+        now=datetime.now(),
+    )
+
+
+@app.route('/portal/settings/orientation', methods=['POST'])
+def portal_set_orientation():
+    orientation = (request.form.get('orientation') or '').strip().lower()
+    if orientation in ('portrait', 'landscape'):
+        device_config.update(orientation=orientation)
+    return redirect(url_for('portal_info'))
+
+
+@app.route('/portal/logs')
+def portal_logs():
+    return render_template('portal_logs.html', entries=log_buffer.get_entries())
+
+
+@app.route('/portal/logs/clear', methods=['POST'])
+def portal_logs_clear():
+    log_buffer.clear()
+    return redirect(url_for('portal_logs'))
+
+
 if __name__ == '__main__':
+    cfg = device_config.get()
+    mdns_advertise.start(cfg['device_key'], get_local_ip(), port=80)
     app.run(host='0.0.0.0', port=80)

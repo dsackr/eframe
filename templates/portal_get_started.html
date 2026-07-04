@@ -1,0 +1,25 @@
+{% extends "portal_base.html" %}
+{% block title %}Get Started{% endblock %}
+{% block content %}
+<div class="card">
+    <h1>Get Started with eframe</h1>
+    <p class="subtitle">Choose how you'd like to begin</p>
+
+    <div class="alert alert-error" style="margin-bottom:18px;">
+        eframe doesn't have a Fraimic cloud account of its own, so these two options are shown for visual parity with a real frame's portal but don't do anything yet.
+    </div>
+
+    <a class="tile" href="#" style="display:block; margin-bottom:12px;" onclick="return false;">
+        <div class="icon-badge">&#128100;</div>
+        <p class="tile-title">Create a Fraimic Account</p>
+        <p class="tile-desc">Set up your digital canvas with a new account</p>
+    </a>
+    <a class="tile" href="#" style="display:block;" onclick="return false;">
+        <div class="icon-badge">&#8674;</div>
+        <p class="tile-title">I have an existing Fraimic account</p>
+        <p class="tile-desc">Set up a new canvas with your existing Fraimic account</p>
+    </a>
+
+    <p class="center" style="margin-top:18px;"><a class="link" href="{{ url_for('portal_home') }}">Portal</a></p>
+</div>
+{% endblock %}

@@ -29,6 +29,31 @@ A simple Flask application for uploading, previewing, rotating, and displaying i
 
 Uploaded files are stored in the `uploads/` directory. The app attempts to use the e-paper driver if available; otherwise it runs in development mode without display output.
 
+## Fraimic-Compatible API
+
+`/api/info`, `/api/battery`, `/api/refresh`, `/api/image`, `/api/restart`, and `/api/sleep` mirror the real Fraimic frame's REST API (see the [Fraimic guide](https://github.com/Fraimic/Fraimic_eink_canvas_home_assistant_restAPI_guide)) so tools built for a real frame work unmodified against eframe.
+
+eframe also implements a few features requested against the real frame that aren't shipped there yet:
+
+- **`/api/info`** additionally reports `display.width_px`, `display.height_px`, `display.orientation`, `display.device_type`, and `device.device_key` ([issue #2](https://github.com/Fraimic/Fraimic_eink_canvas_home_assistant_restAPI_guide/issues/2), [issue #3](https://github.com/Fraimic/Fraimic_eink_canvas_home_assistant_restAPI_guide/issues/3)).
+- **`GET`/`POST /api/settings`** reads or sets `orientation` (`"portrait"` or `"landscape"`), persisted in `device_config.json`. Changing it also changes the expected size for incoming Fraimic `.bin` uploads.
+- **Unique mDNS hostname** — eframe advertises `eframe-<device_key prefix>.local` via `zeroconf` in addition to whatever shared hostname mDNS/avahi already resolves for this host, so multiple frames/eframes on one network don't collide on a single name ([issue #1](https://github.com/Fraimic/Fraimic_eink_canvas_home_assistant_restAPI_guide/issues/1)).
+
+## Portal (`/portal`)
+
+A setup UI that mirrors a real Fraimic frame's on-device portal (WiFi setup, `.bin` upload, device information, logs), rebuilt for eframe:
+
+| Page | Purpose |
+| --- | --- |
+| `/portal` | Landing page with WiFi/power status and navigation tiles |
+| `/portal/wifi` | Scan for networks (`iwlist`) and save credentials (`wpa_cli`) |
+| `/portal/upload` | Upload a `.bin` file directly to the display |
+| `/portal/info` | Device/network/display details, plus the orientation setting |
+| `/portal/logs` | Recent application log lines |
+| `/portal/get-started` | Placeholder — eframe has no real Fraimic cloud account to set up |
+
+WiFi scanning/saving needs `iwlist`/`wpa_cli` available to the process (the classic wireless-tools + wpa_supplicant stack); it fails soft with a message in `/portal/logs` if they aren't present or accessible.
+
 ## Image Sizing and Color Guidance
 
 - **Display resolution**: `1600 x 1200` (landscape) or `1200 x 1600` (portrait).

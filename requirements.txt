@@ -3,3 +3,4 @@ Pillow
 schedule
 RPi.GPIO
 spidev
+zeroconf

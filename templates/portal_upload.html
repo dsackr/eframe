@@ -1,0 +1,22 @@
+{% extends "portal_base.html" %}
+{% block title %}Upload Image{% endblock %}
+{% block content %}
+<div class="card">
+    <div class="icon-badge">&#8593;</div>
+    <h1>Upload Image</h1>
+    <p class="subtitle">Upload a .bin image file to display on your digital canvas</p>
+
+    {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+    {% if success %}<div class="alert alert-success">{{ success }}</div>{% endif %}
+
+    <form method="POST" action="{{ url_for('portal_upload') }}" enctype="multipart/form-data">
+        <label>Select Image File</label>
+        <input type="file" name="file" accept=".bin" required>
+        <p class="hint" style="margin-top:6px;">Max file size: 1MB (.bin format only)</p>
+        <button type="submit" class="btn">Upload Image</button>
+    </form>
+
+    <p class="hint">Only .bin image files (960KB typical) are supported for the E-Ink display</p>
+    <p class="center"><a class="link" href="{{ url_for('portal_home') }}">Portal</a></p>
+</div>
+{% endblock %}
