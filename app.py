@@ -49,9 +49,8 @@ DEVICE_CONFIG_PATH = BASE_DIR / "device_config.json"
 device_config.init(DEVICE_CONFIG_PATH)
 
 # Matches the physical panel driven by lib/epd13in3E.py (EPD_WIDTH=1200,
-# EPD_HEIGHT=1600) and the "13.3\" E-Ink" Device Type shown on a real
-# frame's /info admin page.
-DEVICE_TYPE = '13.3" E-Ink'
+# EPD_HEIGHT=1600) and this unit's actual "13.1\" E-Ink" Device Type.
+DEVICE_TYPE = '13.1" E-Ink'
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024
@@ -481,7 +480,7 @@ def api_info():
     cfg = device_config.get()
     width_px, height_px, orientation = get_effective_display_dims()
     return jsonify({
-        'firmware_version': 'eframe-1.0.0',
+        'firmware_version': '0.2.26c',
         'wifi': {
             'connected': True,
             'ssid':      get_wifi_ssid(),
@@ -608,7 +607,7 @@ def portal_home():
         'portal_home.html',
         wifi_connected=bool(get_wifi_ssid()),
         battery=get_battery_status(),
-        firmware_version='eframe-1.0.0',
+        firmware_version='0.2.26c',
     )
 
 
@@ -671,7 +670,7 @@ def portal_info():
         device_type=DEVICE_TYPE,
         mac=get_mac_address(),
         device_key=cfg.get('device_key', ''),
-        firmware_version='eframe-1.0.0',
+        firmware_version='0.2.26c',
         orientation=orientation,
         width_px=width_px,
         height_px=height_px,
